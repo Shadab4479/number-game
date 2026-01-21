@@ -22,9 +22,14 @@ function generateRoomId() {
 
 io.on('connection', (socket) => {
     
-    // Create Room
+    // 1. Create Room (With Collision Check)
     socket.on('createRoom', (playerName) => {
-        const roomId = generateRoomId();
+        let roomId;
+        // Ensure Room ID is unique
+        do {
+            roomId = generateRoomId();
+        } while (rooms[roomId]);
+
         rooms[roomId] = {
             id: roomId,
             players: {}, 
@@ -40,7 +45,7 @@ io.on('connection', (socket) => {
         socket.emit('roomCreated', roomId);
     });
 
-    // Join Room
+    // 2. Join Room
     socket.on('joinRoom', ({ name, roomId }) => {
         if (rooms[roomId]) {
             joinRoomLogic(socket, roomId, name);
@@ -58,14 +63,15 @@ io.on('connection', (socket) => {
             name: name,
             secret: null,
             isSafe: false,
-            score: 0
+            score: 0,
+            roomId: roomId // Store roomId in player object for easier cleanup
         };
 
         socket.emit('roomJoined', { roomId, isHost: room.host === socket.id });
         io.to(roomId).emit('updatePlayerList', Object.values(room.players));
     }
 
-    // Set Range
+    // 3. Set Range
     socket.on('setRange', ({ roomId, range }) => {
         if (rooms[roomId] && rooms[roomId].host === socket.id) {
             rooms[roomId].range = parseInt(range);
@@ -73,31 +79,25 @@ io.on('connection', (socket) => {
         }
     });
 
-    // --- SELECT SECRET (FIXED) ---
+    // 4. Select Secret
     socket.on('selectSecret', ({ roomId, number }) => {
         const room = rooms[roomId];
         if (!room) return;
 
-        // 1. Conflict Check for 2 Players
+        // Conflict Check for 2 Players
         const allPlayerIds = Object.keys(room.players);
         if (allPlayerIds.length === 2) {
             const otherPlayerId = allPlayerIds.find(id => id !== socket.id);
-            // Agar dusre ne select kar liya hai aur wo same hai
             if (otherPlayerId && room.players[otherPlayerId].secret == number) {
-                // ERROR BHEJO AUR RETURN KAR DO (Save mat karo)
                 socket.emit('selectionError', '⛔ Same number allowed nahi hai 2 players mein!');
                 return; 
             }
         }
 
-        // 2. Save Secret
         if (room.players[socket.id]) {
             room.players[socket.id].secret = number;
-            
-            // Send update strictly to show "Ready" status
             io.to(roomId).emit('updatePlayerList', Object.values(room.players));
             
-            // Check if everyone ready
             const allSelected = Object.values(room.players).every(p => p.secret !== null);
             if (allSelected) {
                 io.to(room.host).emit('allReady'); 
@@ -105,7 +105,7 @@ io.on('connection', (socket) => {
         }
     });
 
-    // Start Game
+    // 5. Start Game
     socket.on('startGame', (roomId) => {
         const room = rooms[roomId];
         if (room && room.host === socket.id) {
@@ -123,7 +123,7 @@ io.on('connection', (socket) => {
         }
     });
 
-    // Cut Number
+    // 6. Cut Number
     socket.on('cutNumber', ({ roomId, number }) => {
         const room = rooms[roomId];
         if (!room || !room.gameActive) return;
@@ -144,7 +144,6 @@ io.on('connection', (socket) => {
         
         const unsafePlayers = Object.values(room.players).filter(p => !p.isSafe);
         
-        // Loss Condition 1: Single Loser
         if (unsafePlayers.length === 1) {
             const loser = unsafePlayers[0];
             loser.score += 1;
@@ -154,7 +153,6 @@ io.on('connection', (socket) => {
             return;
         }
 
-        // Loss Condition 2: Deadlock
         const remainingSecrets = [...new Set(unsafePlayers.map(p => p.secret))];
         if (unsafePlayers.length > 1 && remainingSecrets.length === 1) {
             const loserNames = unsafePlayers.map(p => p.name).join(" & ");
@@ -174,19 +172,50 @@ io.on('connection', (socket) => {
         nextTurn(roomId);
     });
 
+    // --- CLEANUP LOGIC (Disconnect Handle) ---
+    socket.on('disconnect', () => {
+        // Find user in rooms (Scan all rooms)
+        // Note: In production, we stored roomId in socket/player object to avoid scanning
+        // But here we can iterate or use saved ID
+        
+        Object.keys(rooms).forEach(roomId => {
+            const room = rooms[roomId];
+            if (room.players[socket.id]) {
+                const leavingPlayerName = room.players[socket.id].name;
+                delete room.players[socket.id]; // Remove player
+
+                // Notify others
+                io.to(roomId).emit('updatePlayerList', Object.values(room.players));
+                
+                // If room is empty, DELETE ROOM to save memory
+                if (Object.keys(room.players).length === 0) {
+                    clearInterval(room.timer);
+                    delete rooms[roomId];
+                    console.log(`Room ${roomId} deleted (Empty)`);
+                } else {
+                    // If Host left, assign new host (Optional but good)
+                    if (room.host === socket.id) {
+                        const newHostId = Object.keys(room.players)[0];
+                        room.host = newHostId;
+                        io.to(roomId).emit('roomJoined', { roomId, isHost: false }); // Reset UI
+                        io.to(newHostId).emit('roomJoined', { roomId, isHost: true }); // New Host
+                    }
+                }
+            }
+        });
+    });
+
+    // ... Helpers (resetRoom, startTimer, nextTurn) same as before ...
     function resetRoom(roomId) {
         const room = rooms[roomId];
         if(!room) return;
-        
         room.gameActive = false;
         room.secretPhase = true;
         room.currentTurnIndex = 0;
-        
         Object.keys(room.players).forEach(pid => {
             room.players[pid].secret = null;
             room.players[pid].isSafe = false;
         });
-
         io.to(roomId).emit('newRoundStart');
         io.to(roomId).emit('rangeSet', room.range); 
     }
@@ -195,7 +224,6 @@ io.on('connection', (socket) => {
         const room = rooms[roomId];
         let timeLeft = TURN_TIME_LIMIT;
         io.to(roomId).emit('timerUpdate', timeLeft);
-
         clearInterval(room.timer);
         room.timer = setInterval(() => {
             timeLeft--;
@@ -218,14 +246,12 @@ io.on('connection', (socket) => {
         const room = rooms[roomId];
         let foundNextPlayer = false;
         let checks = 0;
-
         while (!foundNextPlayer && checks < room.turnOrder.length) {
             room.currentTurnIndex = (room.currentTurnIndex + 1) % room.turnOrder.length;
             const pid = room.turnOrder[room.currentTurnIndex];
             if (!room.players[pid].isSafe) foundNextPlayer = true;
             checks++;
         }
-
         const nextPid = room.turnOrder[room.currentTurnIndex];
         io.to(roomId).emit('turnChange', { 
             id: nextPid, 
