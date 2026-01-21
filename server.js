@@ -1,159 +1,202 @@
 const express = require('express');
 const http = require('http');
+const path = require('path');
 const { Server } = require('socket.io');
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-app.use(express.static('public'));
+app.use(express.static(path.join(__dirname, 'public')));
 
-let players = {}; // Players data
-let gameActive = false;
-let secretPhase = false;
-let turnOrder = [];
-let currentTurnIndex = 0;
-let numbersRange = 20; // Default
-let leaderboard = {}; // Permanent scores
-let turnTimer = null;
-const TURN_TIME_LIMIT = 15; // Seconds
+// Route for homepage
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
 
-// Helper: Start Timer
-function startTimer() {
-    let timeLeft = TURN_TIME_LIMIT;
-    io.emit('timerUpdate', timeLeft);
+// Store all active rooms
+let rooms = {}; 
 
-    clearInterval(turnTimer);
-    turnTimer = setInterval(() => {
-        timeLeft--;
-        io.emit('timerUpdate', timeLeft);
+const TURN_TIME_LIMIT = 15;
 
-        if (timeLeft <= 0) {
-            clearInterval(turnTimer);
-            handleTimeout();
-        }
-    }, 1000);
-}
-
-// Helper: Handle Timeout (Jab time khatam ho jaye)
-function handleTimeout() {
-    const currentPlayerId = turnOrder[currentTurnIndex];
-    if (players[currentPlayerId]) {
-        // Penalty: Add to Lost count
-        leaderboard[players[currentPlayerId].name] = (leaderboard[players[currentPlayerId].name] || 0) + 1;
-        io.emit('updateLeaderboard', leaderboard);
-        io.emit('message', `⏳ ${players[currentPlayerId].name} ne time waste kiya! (Penalty +1)`);
-    }
-    nextTurn();
-}
-
-// Helper: Next Turn
-function nextTurn() {
-    currentTurnIndex = (currentTurnIndex + 1) % turnOrder.length;
-    // Skip eliminated players
-    let checks = 0;
-    while (players[turnOrder[currentTurnIndex]].out && checks < turnOrder.length) {
-        currentTurnIndex = (currentTurnIndex + 1) % turnOrder.length;
-        checks++;
-    }
-    
-    // Check if game over (only 1 or 0 players left)
-    const activePlayers = turnOrder.filter(id => !players[id].out);
-    if (activePlayers.length <= 1) {
-        endGame(activePlayers);
-    } else {
-        const nextPlayerId = turnOrder[currentTurnIndex];
-        io.emit('turnChange', nextPlayerId);
-        startTimer();
-    }
-}
-
-// Helper: End Game
-function endGame(winners) {
-    clearInterval(turnTimer);
-    gameActive = false;
-    secretPhase = false;
-    
-    // Duplicate Rule Result: Agar bache hue log fas gaye
-    if (winners.length > 0) {
-        let winnerNames = winners.map(id => players[id].name).join(" & ");
-        io.emit('gameOver', `${winnerNames} Bach Gaye (Ya Jeet Gaye)!`);
-    } else {
-        io.emit('gameOver', "Sab Fas Gaye! Game Over.");
-    }
+// Helper: Generate 4-digit Room Code
+function generateRoomId() {
+    return Math.floor(1000 + Math.random() * 9000).toString();
 }
 
 io.on('connection', (socket) => {
-    console.log('New player:', socket.id);
+    console.log('User connected:', socket.id);
 
-    socket.on('joinGame', (name) => {
-        players[socket.id] = { 
-            id: socket.id, 
-            name: name, 
-            secret: null, 
-            out: false 
+    // 1. Create Room
+    socket.on('createRoom', (playerName) => {
+        const roomId = generateRoomId();
+        rooms[roomId] = {
+            id: roomId,
+            players: {}, // { socketId: { name, secret, out, score } }
+            host: socket.id,
+            range: 20, // Default
+            turnOrder: [],
+            currentTurnIndex: 0,
+            gameActive: false,
+            secretPhase: true,
+            timer: null
         };
-        if (!leaderboard[name]) leaderboard[name] = 0; // Init score
         
-        io.emit('updatePlayerList', Object.values(players));
-        io.emit('updateLeaderboard', leaderboard);
+        joinRoomLogic(socket, roomId, playerName);
+        socket.emit('roomCreated', roomId);
     });
 
-    socket.on('startGame', (range) => {
-        numbersRange = parseInt(range);
-        gameActive = true;
-        secretPhase = true;
-        turnOrder = Object.keys(players);
-        
-        // Reset player states for new round
-        turnOrder.forEach(id => {
-            players[id].secret = null;
-            players[id].out = false;
-        });
-
-        io.emit('startSecretPhase', numbersRange);
-    });
-
-    socket.on('selectSecret', (number) => {
-        if (!players[socket.id]) return;
-        players[socket.id].secret = number;
-        
-        // Check if all players selected
-        const allSelected = turnOrder.every(id => players[id].secret !== null);
-        if (allSelected) {
-            secretPhase = false;
-            currentTurnIndex = 0;
-            io.emit('startGamePhase', turnOrder[0]); // Start game logic
-            startTimer();
+    // 2. Join Room
+    socket.on('joinRoom', ({ name, roomId }) => {
+        if (rooms[roomId]) {
+            joinRoomLogic(socket, roomId, name);
+        } else {
+            socket.emit('errorMsg', "Invalid Room Code!");
         }
     });
 
-    socket.on('cutNumber', (number) => {
-        // Validation: Kya ye iski turn hai?
-        if (turnOrder[currentTurnIndex] !== socket.id) return;
+    function joinRoomLogic(socket, roomId, name) {
+        socket.join(roomId);
+        const room = rooms[roomId];
+        
+        room.players[socket.id] = {
+            id: socket.id,
+            name: name,
+            secret: null,
+            out: false,
+            score: 0
+        };
 
-        clearInterval(turnTimer); // Stop timer
-        let caughtPlayers = [];
+        // Notify everyone in room
+        io.to(roomId).emit('updatePlayerList', Object.values(room.players));
+        io.to(roomId).emit('roomJoined', { roomId, isHost: room.host === socket.id });
+    }
 
-        // Check kis kis ka number kata (Duplicate Rule)
-        turnOrder.forEach(id => {
-            if (!players[id].out && players[id].secret == number) {
-                players[id].out = true;
-                caughtPlayers.push(players[id].name);
-                // Fasne wale ka score badhao
-                leaderboard[players[id].name] = (leaderboard[players[id].name] || 0) + 1;
+    // 3. Host Selects Grid Size
+    socket.on('setRange', ({ roomId, range }) => {
+        if (rooms[roomId] && rooms[roomId].host === socket.id) {
+            rooms[roomId].range = parseInt(range);
+            io.to(roomId).emit('rangeSet', rooms[roomId].range); // Show secret grid to all
+        }
+    });
+
+    // 4. Select Secret Number
+    socket.on('selectSecret', ({ roomId, number }) => {
+        const room = rooms[roomId];
+        if (!room) return;
+
+        if (room.players[socket.id]) {
+            room.players[socket.id].secret = number;
+            // Check if everyone selected
+            const allSelected = Object.values(room.players).every(p => p.secret !== null);
+            
+            // Send status update (who is ready)
+            io.to(roomId).emit('playerReady', socket.id);
+
+            if (allSelected) {
+                io.to(roomId).emit('allReady'); // Enable "Start Game" button for host
+            }
+        }
+    });
+
+    // 5. Start Game
+    socket.on('startGame', (roomId) => {
+        const room = rooms[roomId];
+        if (room && room.host === socket.id) {
+            room.secretPhase = false;
+            room.gameActive = true;
+            room.turnOrder = Object.keys(room.players);
+            
+            io.to(roomId).emit('gameStarted', { 
+                range: room.range, 
+                firstPlayer: room.turnOrder[0] 
+            });
+            startTimer(roomId);
+        }
+    });
+
+    // 6. Cut Number Logic
+    socket.on('cutNumber', ({ roomId, number }) => {
+        const room = rooms[roomId];
+        if (!room || !room.gameActive) return;
+
+        // Verify Turn
+        if (room.turnOrder[room.currentTurnIndex] !== socket.id) return;
+
+        clearInterval(room.timer);
+        let caughtNames = [];
+
+        // Check who got caught (Duplicate Rule)
+        Object.keys(room.players).forEach(pid => {
+            const p = room.players[pid];
+            if (!p.out && p.secret == number) {
+                p.out = true;
+                p.score += 1; // Add loss
+                caughtNames.push(p.name);
             }
         });
 
-        io.emit('numberCutResult', { number, caughtPlayers });
-        io.emit('updateLeaderboard', leaderboard);
+        io.to(roomId).emit('numberCutResult', { number, caughtNames });
+        io.to(roomId).emit('updatePlayerList', Object.values(room.players)); // Update scores
 
-        nextTurn();
+        nextTurn(roomId);
     });
 
+    // --- Helpers ---
+    function startTimer(roomId) {
+        const room = rooms[roomId];
+        let timeLeft = TURN_TIME_LIMIT;
+        io.to(roomId).emit('timerUpdate', timeLeft);
+
+        clearInterval(room.timer);
+        room.timer = setInterval(() => {
+            timeLeft--;
+            io.to(roomId).emit('timerUpdate', timeLeft);
+            if (timeLeft <= 0) {
+                clearInterval(room.timer);
+                handleTimeout(roomId);
+            }
+        }, 1000);
+    }
+
+    function handleTimeout(roomId) {
+        const room = rooms[roomId];
+        const pid = room.turnOrder[room.currentTurnIndex];
+        room.players[pid].score += 1; // Penalty
+        
+        io.to(roomId).emit('message', `${room.players[pid].name} time out! (+1 Loss)`);
+        io.to(roomId).emit('updatePlayerList', Object.values(room.players));
+        nextTurn(roomId);
+    }
+
+    function nextTurn(roomId) {
+        const room = rooms[roomId];
+        room.currentTurnIndex = (room.currentTurnIndex + 1) % room.turnOrder.length;
+        
+        // Skip eliminated players
+        let activeCount = 0;
+        let checks = 0;
+        while (room.players[room.turnOrder[room.currentTurnIndex]].out && checks < room.turnOrder.length) {
+            room.currentTurnIndex = (room.currentTurnIndex + 1) % room.turnOrder.length;
+            checks++;
+        }
+
+        // Check for Winners
+        const survivors = room.turnOrder.filter(pid => !room.players[pid].out);
+        if (survivors.length <= 1) {
+            const winnerName = survivors.length === 1 ? room.players[survivors[0]].name : "No one";
+            io.to(roomId).emit('gameOver', winnerName);
+            clearInterval(room.timer);
+        } else {
+            const nextPid = room.turnOrder[room.currentTurnIndex];
+            io.to(roomId).emit('turnChange', nextPid);
+            startTimer(roomId);
+        }
+    }
+
     socket.on('disconnect', () => {
-        delete players[socket.id];
-        io.emit('updatePlayerList', Object.values(players));
+        // Simple cleanup: If host leaves, room might break (Basic version)
+        // Production apps need better reconnect logic
     });
 });
 
