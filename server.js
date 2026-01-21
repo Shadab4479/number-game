@@ -22,7 +22,7 @@ function generateRoomId() {
 
 io.on('connection', (socket) => {
     
-    // 1. Create Room
+    // Create Room
     socket.on('createRoom', (playerName) => {
         const roomId = generateRoomId();
         rooms[roomId] = {
@@ -40,7 +40,7 @@ io.on('connection', (socket) => {
         socket.emit('roomCreated', roomId);
     });
 
-    // 2. Join Room
+    // Join Room
     socket.on('joinRoom', ({ name, roomId }) => {
         if (rooms[roomId]) {
             joinRoomLogic(socket, roomId, name);
@@ -65,7 +65,7 @@ io.on('connection', (socket) => {
         io.to(roomId).emit('updatePlayerList', Object.values(room.players));
     }
 
-    // 3. Set Range
+    // Set Range
     socket.on('setRange', ({ roomId, range }) => {
         if (rooms[roomId] && rooms[roomId].host === socket.id) {
             rooms[roomId].range = parseInt(range);
@@ -73,29 +73,31 @@ io.on('connection', (socket) => {
         }
     });
 
-    // 4. Select Secret (NEW LOGIC ADDED HERE)
+    // --- SELECT SECRET (FIXED) ---
     socket.on('selectSecret', ({ roomId, number }) => {
         const room = rooms[roomId];
         if (!room) return;
 
-        // --- NEW RULE: 2 Players Conflict Check ---
+        // 1. Conflict Check for 2 Players
         const allPlayerIds = Object.keys(room.players);
-        
         if (allPlayerIds.length === 2) {
-            // Check agar dusre player ne same number liya hai
             const otherPlayerId = allPlayerIds.find(id => id !== socket.id);
+            // Agar dusre ne select kar liya hai aur wo same hai
             if (otherPlayerId && room.players[otherPlayerId].secret == number) {
-                // Conflict!
-                socket.emit('message', '⚠️ 2 Players mein Same Number allowed nahi hai! Doosra chuno.');
-                return; // Stop here, don't set secret
+                // ERROR BHEJO AUR RETURN KAR DO (Save mat karo)
+                socket.emit('selectionError', '⛔ Same number allowed nahi hai 2 players mein!');
+                return; 
             }
         }
 
-        // Agar 3+ players hain, ya number unique hai -> Set Secret
+        // 2. Save Secret
         if (room.players[socket.id]) {
             room.players[socket.id].secret = number;
+            
+            // Send update strictly to show "Ready" status
             io.to(roomId).emit('updatePlayerList', Object.values(room.players));
             
+            // Check if everyone ready
             const allSelected = Object.values(room.players).every(p => p.secret !== null);
             if (allSelected) {
                 io.to(room.host).emit('allReady'); 
@@ -103,7 +105,7 @@ io.on('connection', (socket) => {
         }
     });
 
-    // 5. Start Game
+    // Start Game
     socket.on('startGame', (roomId) => {
         const room = rooms[roomId];
         if (room && room.host === socket.id) {
@@ -121,7 +123,7 @@ io.on('connection', (socket) => {
         }
     });
 
-    // 6. CUT NUMBER LOGIC (UPDATED FOR DEADLOCK)
+    // Cut Number
     socket.on('cutNumber', ({ roomId, number }) => {
         const room = rooms[roomId];
         if (!room || !room.gameActive) return;
@@ -130,57 +132,45 @@ io.on('connection', (socket) => {
         clearInterval(room.timer);
         let safeNames = [];
 
-        // Step A: Check who becomes Safe
         Object.keys(room.players).forEach(pid => {
             const p = room.players[pid];
             if (!p.isSafe && p.secret == number) {
-                p.isSafe = true; // Player Saved!
+                p.isSafe = true;
                 safeNames.push(p.name);
             }
         });
 
         io.to(roomId).emit('numberCutResult', { number, safeNames });
         
-        // Step B: Check Game Over Conditions
         const unsafePlayers = Object.values(room.players).filter(p => !p.isSafe);
         
-        // Logic 1: Last Man Standing (Example: B bacha hai, A aur C safe ho gaye)
+        // Loss Condition 1: Single Loser
         if (unsafePlayers.length === 1) {
             const loser = unsafePlayers[0];
-            loser.score += 1; // Penalty
-
+            loser.score += 1;
             io.to(roomId).emit('updatePlayerList', Object.values(room.players));
             io.to(roomId).emit('roundOver', `🔴 ${loser.name} FASS GAYA! (Loser)`);
             setTimeout(() => resetRoom(roomId), 3000);
             return;
         }
 
-        // Logic 2: Deadlock / Same Number Trap (Example: A aur C bache hain, dono ka number 15 hai)
-        // Check agar bache hue sabhi players ka secret number SAME hai
+        // Loss Condition 2: Deadlock
         const remainingSecrets = [...new Set(unsafePlayers.map(p => p.secret))];
-
         if (unsafePlayers.length > 1 && remainingSecrets.length === 1) {
-            // Deadlock! Koi kisi ko nahi kaat sakta. Sab Haar Gaye.
             const loserNames = unsafePlayers.map(p => p.name).join(" & ");
-            
-            unsafePlayers.forEach(p => {
-                p.score += 1; // Sabko loss milega
-            });
-
+            unsafePlayers.forEach(p => p.score += 1);
             io.to(roomId).emit('updatePlayerList', Object.values(room.players));
-            io.to(roomId).emit('roundOver', `🕸️ DEADLOCK! ${loserNames} sab phas gaye! (Sabka number same tha)`);
-            setTimeout(() => resetRoom(roomId), 4000); // Thoda zyada time padhne ke liye
+            io.to(roomId).emit('roundOver', `🕸️ DEADLOCK! ${loserNames} phas gaye! (Same Number)`);
+            setTimeout(() => resetRoom(roomId), 4000);
             return;
         }
         
-        // Logic 3: Rare Case (Sab safe ho gaye - Draw)
         if (unsafePlayers.length === 0) {
-            io.to(roomId).emit('roundOver', "😲 Sab Safe ho gaye! Draw.");
+            io.to(roomId).emit('roundOver', "😲 Sab Safe? Draw.");
             setTimeout(() => resetRoom(roomId), 3000);
             return;
         }
 
-        // Step C: Game Continues
         nextTurn(roomId);
     });
 
@@ -220,28 +210,19 @@ io.on('connection', (socket) => {
     function handleTimeout(roomId) {
         const room = rooms[roomId];
         const pid = room.turnOrder[room.currentTurnIndex];
-        
-        // Timeout penalty logic (Optional: +1 loss or just skip?)
-        // room.players[pid].score += 1; 
-        
         io.to(roomId).emit('message', `⏳ ${room.players[pid].name} so gaya! Turn skipped.`);
         nextTurn(roomId);
     }
 
     function nextTurn(roomId) {
         const room = rooms[roomId];
-        
         let foundNextPlayer = false;
         let checks = 0;
 
-        // Loop to find next UNSAFE player
         while (!foundNextPlayer && checks < room.turnOrder.length) {
             room.currentTurnIndex = (room.currentTurnIndex + 1) % room.turnOrder.length;
             const pid = room.turnOrder[room.currentTurnIndex];
-            
-            if (!room.players[pid].isSafe) {
-                foundNextPlayer = true;
-            }
+            if (!room.players[pid].isSafe) foundNextPlayer = true;
             checks++;
         }
 
