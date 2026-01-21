@@ -3,148 +3,322 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Number Strategy Game</title>
+    <title>Number Ninja</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap" rel="stylesheet">
     <style>
-        body { font-family: sans-serif; text-align: center; background: #f0f0f0; }
-        #game-screen, #secret-screen { display: none; }
-        .grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; max-width: 400px; margin: 20px auto; }
-        .cell { background: white; padding: 15px; border: 1px solid #ccc; cursor: pointer; font-size: 18px; }
-        .cell.cut { background: #ffcccc; color: red; text-decoration: line-through; pointer-events: none; }
-        .cell.my-secret { border: 3px solid blue; font-weight: bold; }
-        #timer { font-size: 24px; color: red; font-weight: bold; margin: 10px; }
-        #leaderboard { position: fixed; right: 10px; top: 10px; background: white; padding: 10px; border: 1px solid #333; }
-        .active-turn { color: green; font-weight: bold; }
+        /* --- STYLISH CSS --- */
+        :root {
+            --primary: #6C63FF;
+            --dark: #1a1a2e;
+            --light: #e0e0e0;
+            --glass: rgba(255, 255, 255, 0.1);
+        }
+        body {
+            font-family: 'Poppins', sans-serif;
+            background: linear-gradient(135deg, #16213e, #1a1a2e);
+            color: white;
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+        }
+        .container {
+            width: 90%;
+            max-width: 500px;
+            background: var(--glass);
+            backdrop-filter: blur(10px);
+            padding: 2rem;
+            border-radius: 20px;
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            transition: all 0.3s ease;
+        }
+        h1, h2 { margin-bottom: 20px; color: var(--primary); }
+        
+        input, select {
+            width: 80%;
+            padding: 12px;
+            margin: 10px 0;
+            border-radius: 8px;
+            border: none;
+            background: rgba(255,255,255,0.1);
+            color: white;
+            font-size: 16px;
+            text-align: center;
+        }
+        
+        button {
+            width: 100%;
+            padding: 12px;
+            margin-top: 10px;
+            border-radius: 8px;
+            border: none;
+            background: var(--primary);
+            color: white;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        button:hover { transform: scale(1.05); }
+        button:disabled { background: #555; cursor: not-allowed; }
+        
+        .hidden { display: none; }
+        
+        /* Grid System */
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 10px;
+            margin-top: 20px;
+        }
+        .cell {
+            background: rgba(255,255,255,0.1);
+            padding: 15px 0;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: 0.2s;
+        }
+        .cell:hover { background: var(--primary); }
+        .cell.selected { border: 2px solid #00ff88; box-shadow: 0 0 10px #00ff88; }
+        .cell.cut { background: #ff4757; opacity: 0.5; pointer-events: none; text-decoration: line-through; }
+        
+        /* Lists */
+        ul { list-style: none; padding: 0; }
+        li { background: rgba(0,0,0,0.2); margin: 5px; padding: 10px; border-radius: 5px; display: flex; justify-content: space-between;}
+        
+        .code-box {
+            font-size: 24px;
+            letter-spacing: 5px;
+            background: rgba(0,0,0,0.3);
+            padding: 10px;
+            border-radius: 10px;
+            margin: 10px 0;
+            cursor: pointer;
+        }
+        #timer { font-size: 3rem; font-weight: bold; color: #ff4757; }
+        .status { margin-top: 10px; font-size: 0.9rem; color: #aaa; }
     </style>
 </head>
 <body>
 
-    <div id="leaderboard">
-        <h3>Fasa Kaun? (Losses)</h3>
-        <ul id="score-list"></ul>
-    </div>
+    <div class="container">
+        <div id="menu-screen">
+            <h1>NUMBER NINJA 🥷</h1>
+            <input type="text" id="username" placeholder="Enter Your Name">
+            <button onclick="createRoomMenu()">Create Room</button>
+            <button onclick="joinRoomMenu()">Join Room</button>
+        </div>
 
-    <div id="login-screen">
-        <h2>Enter Name</h2>
-        <input type="text" id="username" placeholder="Your Name">
-        <button onclick="joinGame()">Join Game</button>
-        <br><br>
-        <label>Range (1 to X): </label>
-        <input type="number" id="range" value="20" style="width: 50px;">
-        <button onclick="startGame()">Start Game (Host Only)</button>
-        <h3>Players:</h3>
-        <ul id="player-list"></ul>
-    </div>
+        <div id="join-input-screen" class="hidden">
+            <h2>Join Squad</h2>
+            <input type="number" id="room-code-input" placeholder="Enter Room Code">
+            <button onclick="joinRoom()">Enter Game</button>
+            <button onclick="backToMenu()" style="background: transparent; border: 1px solid white;">Back</button>
+        </div>
 
-    <div id="secret-screen">
-        <h2>Apna Secret Number Chuno</h2>
-        <div id="secret-grid" class="grid"></div>
-    </div>
+        <div id="lobby-screen" class="hidden">
+            <h2>Room Lobby</h2>
+            <p>Share this code with friends:</p>
+            <div class="code-box" id="display-room-code" onclick="copyCode()">----</div>
+            
+            <div id="host-controls" class="hidden">
+                <p>Select Grid Size:</p>
+                <select id="grid-range">
+                    <option value="10">1 to 10</option>
+                    <option value="20" selected>1 to 20</option>
+                    <option value="30">1 to 30</option>
+                    <option value="50">1 to 50</option>
+                </select>
+                <button onclick="setGameRange()">Confirm Grid</button>
+            </div>
 
-    <div id="game-screen">
-        <h2 id="status">Game On!</h2>
-        <div id="timer">15</div>
-        <div id="main-grid" class="grid"></div>
+            <h3>Players:</h3>
+            <ul id="lobby-list"></ul>
+            <p class="status" id="lobby-status">Waiting for host...</p>
+        </div>
+
+        <div id="secret-screen" class="hidden">
+            <h2>Shh! Pick a Secret 🤫</h2>
+            <p>Click one number. Others won't see it.</p>
+            <div id="secret-grid" class="grid"></div>
+            <button id="start-btn" class="hidden" onclick="triggerStartGame()">START GAME</button>
+        </div>
+
+        <div id="game-screen" class="hidden">
+            <div id="timer">15</div>
+            <h3 id="turn-msg">Game Starting...</h3>
+            <div id="main-grid" class="grid"></div>
+            
+            <div style="margin-top: 20px; border-top: 1px solid #555;">
+                <h4>Scoreboard (Losses)</h4>
+                <ul id="game-player-list"></ul>
+            </div>
+        </div>
     </div>
 
     <script src="/socket.io/socket.io.js"></script>
     <script>
         const socket = io();
-        let myId = null;
+        let myRoomId = null;
+        let myName = "";
 
-        function joinGame() {
-            const name = document.getElementById('username').value;
-            if(name) {
-                socket.emit('joinGame', name);
-                document.getElementById('username').disabled = true;
+        // UI Functions
+        function backToMenu() {
+            document.querySelectorAll('.container > div').forEach(d => d.classList.add('hidden'));
+            document.getElementById('menu-screen').classList.remove('hidden');
+        }
+
+        function createRoomMenu() {
+            myName = document.getElementById('username').value;
+            if(!myName) return alert("Naam to likho bhai!");
+            socket.emit('createRoom', myName);
+        }
+
+        function joinRoomMenu() {
+            myName = document.getElementById('username').value;
+            if(!myName) return alert("Naam to likho bhai!");
+            document.getElementById('menu-screen').classList.add('hidden');
+            document.getElementById('join-input-screen').classList.remove('hidden');
+        }
+
+        function joinRoom() {
+            const code = document.getElementById('room-code-input').value;
+            socket.emit('joinRoom', { name: myName, roomId: code });
+        }
+
+        function copyCode() {
+            const code = document.getElementById('display-room-code').innerText;
+            navigator.clipboard.writeText(code);
+            alert("Code Copied!");
+        }
+
+        // --- SOCKET EVENTS ---
+
+        socket.on('roomCreated', (roomId) => {
+            myRoomId = roomId;
+            enterLobby(roomId, true);
+        });
+
+        socket.on('roomJoined', (data) => {
+            myRoomId = data.roomId;
+            enterLobby(data.roomId, data.isHost);
+        });
+
+        socket.on('errorMsg', (msg) => alert(msg));
+
+        function enterLobby(roomId, isHost) {
+            document.querySelectorAll('.container > div').forEach(d => d.classList.add('hidden'));
+            document.getElementById('lobby-screen').classList.remove('hidden');
+            document.getElementById('display-room-code').innerText = roomId;
+            
+            if(isHost) {
+                document.getElementById('host-controls').classList.remove('hidden');
+            } else {
+                document.getElementById('host-controls').classList.add('hidden');
+                document.getElementById('lobby-status').innerText = "Host grid select kar raha hai...";
             }
         }
 
-        function startGame() {
-            const range = document.getElementById('range').value;
-            socket.emit('startGame', range);
-        }
-
-        // Listeners
         socket.on('updatePlayerList', (players) => {
-            const list = document.getElementById('player-list');
-            list.innerHTML = players.map(p => `<li>${p.name} ${p.out ? '(OUT)' : ''}</li>`).join('');
+            const list = players.map(p => `<li>
+                <span>${p.name} ${p.secret ? '✅' : '...'}</span>
+                <span style="color: #ff4757;">${p.score} L</span>
+            </li>`).join('');
+            
+            document.getElementById('lobby-list').innerHTML = list;
+            document.getElementById('game-player-list').innerHTML = list;
         });
 
-        socket.on('updateLeaderboard', (scores) => {
-            const list = document.getElementById('score-list');
-            list.innerHTML = Object.keys(scores).map(k => `<li>${k}: ${scores[k]}</li>`).join('');
+        // Host clicks "Confirm Grid"
+        function setGameRange() {
+            const range = document.getElementById('grid-range').value;
+            socket.emit('setRange', { roomId: myRoomId, range: range });
+        }
+
+        // Show Secret Grid to ALL
+        socket.on('rangeSet', (range) => {
+            document.getElementById('lobby-screen').classList.add('hidden');
+            document.getElementById('secret-screen').classList.remove('hidden');
+            createGrid(range, 'secret-grid', (num, div) => {
+                // Remove previous selection style
+                document.querySelectorAll('#secret-grid .cell').forEach(c => c.classList.remove('selected'));
+                div.classList.add('selected');
+                socket.emit('selectSecret', { roomId: myRoomId, number: num });
+                document.querySelector('#secret-screen h2').innerText = "Waiting for others...";
+            });
         });
 
-        socket.on('startSecretPhase', (range) => {
-            document.getElementById('login-screen').style.display = 'none';
-            document.getElementById('secret-screen').style.display = 'block';
-            createGrid(range, 'secret-grid', selectSecret);
-        });
-
-        socket.on('startGamePhase', (firstPlayerId) => {
-            document.getElementById('secret-screen').style.display = 'none';
-            document.getElementById('game-screen').style.display = 'block';
-            // Grid wahi rahega, bas logic badal jayega
-            const range = document.getElementById('secret-grid').childElementCount;
-            createGrid(range, 'main-grid', cutNumber);
-            updateStatus(firstPlayerId);
-        });
-
-        socket.on('turnChange', (playerId) => {
-            updateStatus(playerId);
-        });
-
-        socket.on('timerUpdate', (time) => {
-            document.getElementById('timer').innerText = time + "s";
-        });
-
-        socket.on('numberCutResult', (data) => {
-            const cell = document.querySelectorAll('#main-grid .cell')[data.number - 1];
-            if(cell) {
-                cell.classList.add('cut');
-                if (data.caughtPlayers.length > 0) {
-                    alert(`FAS GAYA! ${data.caughtPlayers.join(' & ')} ka number kata!`);
-                }
+        socket.on('allReady', () => {
+            // Only host sees start button, handled by previous logic but double check UI
+            if(!document.getElementById('host-controls').classList.contains('hidden')) {
+                document.getElementById('start-btn').classList.remove('hidden');
             }
         });
 
-        socket.on('gameOver', (msg) => {
-            alert(msg);
-            location.reload(); // Refresh to restart
+        function triggerStartGame() {
+            socket.emit('startGame', myRoomId);
+        }
+
+        // START GAME
+        socket.on('gameStarted', ({ range, firstPlayer }) => {
+            document.getElementById('secret-screen').classList.add('hidden');
+            document.getElementById('game-screen').classList.remove('hidden');
+            createGrid(range, 'main-grid', (num) => {
+                socket.emit('cutNumber', { roomId: myRoomId, number: num });
+            });
+            updateTurnUI(firstPlayer);
         });
 
-        // Helpers
-        function createGrid(range, elementId, clickHandler) {
-            const container = document.getElementById(elementId);
+        socket.on('turnChange', (pid) => updateTurnUI(pid));
+        
+        socket.on('timerUpdate', (t) => document.getElementById('timer').innerText = t);
+
+        socket.on('numberCutResult', ({ number, caughtNames }) => {
+            const cells = document.querySelectorAll('#main-grid .cell');
+            if(cells[number-1]) cells[number-1].classList.add('cut');
+            
+            if(caughtNames.length > 0) {
+                alert(`Caught: ${caughtNames.join(', ')}`);
+            }
+        });
+
+        socket.on('message', (msg) => alert(msg));
+        socket.on('gameOver', (winner) => {
+            alert(`GAME OVER! Winner: ${winner}`);
+            location.reload();
+        });
+
+        // Helper
+        function createGrid(range, containerId, onClick) {
+            const container = document.getElementById(containerId);
             container.innerHTML = '';
             for(let i=1; i<=range; i++) {
                 const div = document.createElement('div');
                 div.className = 'cell';
                 div.innerText = i;
-                div.onclick = () => clickHandler(i, div);
+                div.onclick = () => onClick(i, div);
                 container.appendChild(div);
             }
         }
 
-        function selectSecret(num, div) {
-            socket.emit('selectSecret', num);
-            div.classList.add('my-secret');
-            document.getElementById('secret-screen').innerHTML += "<h3>Wait for others...</h3>";
-        }
-
-        function cutNumber(num, div) {
-            socket.emit('cutNumber', num);
-        }
-
-        function updateStatus(playerId) {
-            socket.on('connect', () => { myId = socket.id; }); // Ensure ID is set
-            const status = document.getElementById('status');
-            if (socket.id === playerId) {
-                status.innerText = "👉 TERI BAARI HAI (Cut a number)";
-                status.style.color = "green";
+        function updateTurnUI(pid) {
+            const msg = document.getElementById('turn-msg');
+            const grid = document.getElementById('main-grid');
+            
+            if(pid === socket.id) {
+                msg.innerText = "👉 YOUR TURN!";
+                msg.style.color = "#00ff88";
+                grid.style.pointerEvents = 'auto';
+                grid.style.opacity = '1';
             } else {
-                status.innerText = "⏳ Opponent ki baari...";
-                status.style.color = "black";
+                msg.innerText = "Waiting for opponent...";
+                msg.style.color = "#aaa";
+                grid.style.pointerEvents = 'none';
+                grid.style.opacity = '0.5';
             }
         }
     </script>
