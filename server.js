@@ -9,17 +9,14 @@ const io = new Server(server);
 
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Route for homepage
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Store all active rooms
 let rooms = {}; 
 
 const TURN_TIME_LIMIT = 15;
 
-// Helper: Generate 4-digit Room Code
 function generateRoomId() {
     return Math.floor(1000 + Math.random() * 9000).toString();
 }
@@ -32,9 +29,9 @@ io.on('connection', (socket) => {
         const roomId = generateRoomId();
         rooms[roomId] = {
             id: roomId,
-            players: {}, // { socketId: { name, secret, out, score } }
+            players: {}, 
             host: socket.id,
-            range: 20, // Default
+            range: 20, 
             turnOrder: [],
             currentTurnIndex: 0,
             gameActive: false,
@@ -67,16 +64,20 @@ io.on('connection', (socket) => {
             score: 0
         };
 
-        // Notify everyone in room
+        // --- BUG FIX IS HERE ---
+        // Pehle hum 'io.to' use kar rahe the (galat), ab 'socket.emit' use karenge (sahi).
+        // Isse screen sirf naye player ki update hogi, Host ki nahi.
+        socket.emit('roomJoined', { roomId, isHost: room.host === socket.id });
+
+        // Player List sabko bhejo (taaki host ko dikhe ki naya banda aaya hai)
         io.to(roomId).emit('updatePlayerList', Object.values(room.players));
-        io.to(roomId).emit('roomJoined', { roomId, isHost: room.host === socket.id });
     }
 
     // 3. Host Selects Grid Size
     socket.on('setRange', ({ roomId, range }) => {
         if (rooms[roomId] && rooms[roomId].host === socket.id) {
             rooms[roomId].range = parseInt(range);
-            io.to(roomId).emit('rangeSet', rooms[roomId].range); // Show secret grid to all
+            io.to(roomId).emit('rangeSet', rooms[roomId].range); 
         }
     });
 
@@ -87,14 +88,17 @@ io.on('connection', (socket) => {
 
         if (room.players[socket.id]) {
             room.players[socket.id].secret = number;
-            // Check if everyone selected
-            const allSelected = Object.values(room.players).every(p => p.secret !== null);
             
-            // Send status update (who is ready)
-            io.to(roomId).emit('playerReady', socket.id);
+            // Check status
+            const allPlayers = Object.values(room.players);
+            const allSelected = allPlayers.every(p => p.secret !== null);
+            
+            // Status update (Kaun ready hai)
+            io.to(roomId).emit('updatePlayerList', allPlayers);
 
             if (allSelected) {
-                io.to(roomId).emit('allReady'); // Enable "Start Game" button for host
+                // Sirf Host ko Start Button dikhana hai
+                io.to(room.host).emit('allReady'); 
             }
         }
     });
@@ -102,6 +106,7 @@ io.on('connection', (socket) => {
     // 5. Start Game
     socket.on('startGame', (roomId) => {
         const room = rooms[roomId];
+        // Security check: Sirf host start kar sakta hai
         if (room && room.host === socket.id) {
             room.secretPhase = false;
             room.gameActive = true;
@@ -120,24 +125,22 @@ io.on('connection', (socket) => {
         const room = rooms[roomId];
         if (!room || !room.gameActive) return;
 
-        // Verify Turn
         if (room.turnOrder[room.currentTurnIndex] !== socket.id) return;
 
         clearInterval(room.timer);
         let caughtNames = [];
 
-        // Check who got caught (Duplicate Rule)
         Object.keys(room.players).forEach(pid => {
             const p = room.players[pid];
             if (!p.out && p.secret == number) {
                 p.out = true;
-                p.score += 1; // Add loss
+                p.score += 1; 
                 caughtNames.push(p.name);
             }
         });
 
         io.to(roomId).emit('numberCutResult', { number, caughtNames });
-        io.to(roomId).emit('updatePlayerList', Object.values(room.players)); // Update scores
+        io.to(roomId).emit('updatePlayerList', Object.values(room.players)); 
 
         nextTurn(roomId);
     });
@@ -162,7 +165,7 @@ io.on('connection', (socket) => {
     function handleTimeout(roomId) {
         const room = rooms[roomId];
         const pid = room.turnOrder[room.currentTurnIndex];
-        room.players[pid].score += 1; // Penalty
+        room.players[pid].score += 1; 
         
         io.to(roomId).emit('message', `${room.players[pid].name} time out! (+1 Loss)`);
         io.to(roomId).emit('updatePlayerList', Object.values(room.players));
@@ -173,15 +176,14 @@ io.on('connection', (socket) => {
         const room = rooms[roomId];
         room.currentTurnIndex = (room.currentTurnIndex + 1) % room.turnOrder.length;
         
-        // Skip eliminated players
         let activeCount = 0;
         let checks = 0;
+        // Skip eliminated players
         while (room.players[room.turnOrder[room.currentTurnIndex]].out && checks < room.turnOrder.length) {
             room.currentTurnIndex = (room.currentTurnIndex + 1) % room.turnOrder.length;
             checks++;
         }
 
-        // Check for Winners
         const survivors = room.turnOrder.filter(pid => !room.players[pid].out);
         if (survivors.length <= 1) {
             const winnerName = survivors.length === 1 ? room.players[survivors[0]].name : "No one";
@@ -195,8 +197,7 @@ io.on('connection', (socket) => {
     }
 
     socket.on('disconnect', () => {
-        // Simple cleanup: If host leaves, room might break (Basic version)
-        // Production apps need better reconnect logic
+        // Cleanup logic can be added here
     });
 });
 
