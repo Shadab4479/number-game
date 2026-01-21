@@ -57,7 +57,7 @@ io.on('connection', (socket) => {
             id: socket.id,
             name: name,
             secret: null,
-            isSafe: false, // Changed from 'out' to 'isSafe'
+            isSafe: false,
             score: 0
         };
 
@@ -73,14 +73,28 @@ io.on('connection', (socket) => {
         }
     });
 
-    // 4. Select Secret
+    // 4. Select Secret (NEW LOGIC ADDED HERE)
     socket.on('selectSecret', ({ roomId, number }) => {
         const room = rooms[roomId];
         if (!room) return;
 
+        // --- NEW RULE: 2 Players Conflict Check ---
+        const allPlayerIds = Object.keys(room.players);
+        
+        if (allPlayerIds.length === 2) {
+            // Check agar dusre player ne same number liya hai
+            const otherPlayerId = allPlayerIds.find(id => id !== socket.id);
+            if (otherPlayerId && room.players[otherPlayerId].secret == number) {
+                // Conflict!
+                socket.emit('message', '⚠️ 2 Players mein Same Number allowed nahi hai! Doosra chuno.');
+                return; // Stop here, don't set secret
+            }
+        }
+
+        // Agar 3+ players hain, ya number unique hai -> Set Secret
         if (room.players[socket.id]) {
             room.players[socket.id].secret = number;
-            io.to(roomId).emit('updatePlayerList', Object.values(room.players)); // Update ticks
+            io.to(roomId).emit('updatePlayerList', Object.values(room.players));
             
             const allSelected = Object.values(room.players).every(p => p.secret !== null);
             if (allSelected) {
@@ -95,9 +109,8 @@ io.on('connection', (socket) => {
         if (room && room.host === socket.id) {
             room.secretPhase = false;
             room.gameActive = true;
-            room.turnOrder = Object.keys(room.players); // Shuffle optionally
+            room.turnOrder = Object.keys(room.players); 
             
-            // First turn logic
             const firstPlayer = room.turnOrder[0];
             io.to(roomId).emit('gameStarted', { 
                 range: room.range, 
@@ -108,7 +121,7 @@ io.on('connection', (socket) => {
         }
     });
 
-    // 6. CUT NUMBER LOGIC (Major Changes Here)
+    // 6. CUT NUMBER LOGIC (UPDATED FOR DEADLOCK)
     socket.on('cutNumber', ({ roomId, number }) => {
         const room = rooms[roomId];
         if (!room || !room.gameActive) return;
@@ -117,46 +130,58 @@ io.on('connection', (socket) => {
         clearInterval(room.timer);
         let safeNames = [];
 
-        // Check if anyone becomes SAFE
+        // Step A: Check who becomes Safe
         Object.keys(room.players).forEach(pid => {
             const p = room.players[pid];
             if (!p.isSafe && p.secret == number) {
-                p.isSafe = true; // They are saved!
+                p.isSafe = true; // Player Saved!
                 safeNames.push(p.name);
             }
         });
 
         io.to(roomId).emit('numberCutResult', { number, safeNames });
         
-        // CHECK LOSE CONDITION (Are only losers left?)
+        // Step B: Check Game Over Conditions
         const unsafePlayers = Object.values(room.players).filter(p => !p.isSafe);
         
-        // Logic: If remaining players all have the SAME secret number (or only 1 player left)
-        // Then game is over because that number is the last one.
+        // Logic 1: Last Man Standing (Example: B bacha hai, A aur C safe ho gaye)
+        if (unsafePlayers.length === 1) {
+            const loser = unsafePlayers[0];
+            loser.score += 1; // Penalty
+
+            io.to(roomId).emit('updatePlayerList', Object.values(room.players));
+            io.to(roomId).emit('roundOver', `🔴 ${loser.name} FASS GAYA! (Loser)`);
+            setTimeout(() => resetRoom(roomId), 3000);
+            return;
+        }
+
+        // Logic 2: Deadlock / Same Number Trap (Example: A aur C bache hain, dono ka number 15 hai)
+        // Check agar bache hue sabhi players ka secret number SAME hai
         const remainingSecrets = [...new Set(unsafePlayers.map(p => p.secret))];
 
-        if (unsafePlayers.length > 0 && remainingSecrets.length === 1) {
-            // GAME OVER - All remaining players LOSE
-            const losers = unsafePlayers.map(p => p.name).join(" & ");
+        if (unsafePlayers.length > 1 && remainingSecrets.length === 1) {
+            // Deadlock! Koi kisi ko nahi kaat sakta. Sab Haar Gaye.
+            const loserNames = unsafePlayers.map(p => p.name).join(" & ");
             
             unsafePlayers.forEach(p => {
-                p.score += 1; // Add loss
+                p.score += 1; // Sabko loss milega
             });
 
             io.to(roomId).emit('updatePlayerList', Object.values(room.players));
-            io.to(roomId).emit('roundOver', `🔴 ${losers} LOSE! (Last Number Remained)`);
-            
-            // AUTO RESTART after 3 seconds
-            setTimeout(() => {
-                resetRoom(roomId);
-            }, 3000);
-
-        } else if (unsafePlayers.length === 0) {
-            // Rare edge case: Everyone got safe simultaneously?
-             resetRoom(roomId);
-        } else {
-            nextTurn(roomId);
+            io.to(roomId).emit('roundOver', `🕸️ DEADLOCK! ${loserNames} sab phas gaye! (Sabka number same tha)`);
+            setTimeout(() => resetRoom(roomId), 4000); // Thoda zyada time padhne ke liye
+            return;
         }
+        
+        // Logic 3: Rare Case (Sab safe ho gaye - Draw)
+        if (unsafePlayers.length === 0) {
+            io.to(roomId).emit('roundOver', "😲 Sab Safe ho gaye! Draw.");
+            setTimeout(() => resetRoom(roomId), 3000);
+            return;
+        }
+
+        // Step C: Game Continues
+        nextTurn(roomId);
     });
 
     function resetRoom(roomId) {
@@ -167,15 +192,12 @@ io.on('connection', (socket) => {
         room.secretPhase = true;
         room.currentTurnIndex = 0;
         
-        // Reset player states but KEEP scores
         Object.keys(room.players).forEach(pid => {
             room.players[pid].secret = null;
             room.players[pid].isSafe = false;
         });
 
-        // Send back to secret screen
         io.to(roomId).emit('newRoundStart');
-        // If host, resend range just to trigger grid creation again or keep same
         io.to(roomId).emit('rangeSet', room.range); 
     }
 
@@ -198,23 +220,28 @@ io.on('connection', (socket) => {
     function handleTimeout(roomId) {
         const room = rooms[roomId];
         const pid = room.turnOrder[room.currentTurnIndex];
-        // Note: In new logic, timeout doesn't mean OUT, just skip turn + penalty maybe?
-        // Let's just add loss but keep them in game
+        
+        // Timeout penalty logic (Optional: +1 loss or just skip?)
         // room.players[pid].score += 1; 
         
-        io.to(roomId).emit('message', `⏳ ${room.players[pid].name} slept! Turn skipped.`);
-        // io.to(roomId).emit('updatePlayerList', Object.values(room.players));
+        io.to(roomId).emit('message', `⏳ ${room.players[pid].name} so gaya! Turn skipped.`);
         nextTurn(roomId);
     }
 
     function nextTurn(roomId) {
         const room = rooms[roomId];
-        room.currentTurnIndex = (room.currentTurnIndex + 1) % room.turnOrder.length;
         
+        let foundNextPlayer = false;
         let checks = 0;
-        // Skip SAFE players (They don't need to cut numbers anymore)
-        while (room.players[room.turnOrder[room.currentTurnIndex]].isSafe && checks < room.turnOrder.length) {
+
+        // Loop to find next UNSAFE player
+        while (!foundNextPlayer && checks < room.turnOrder.length) {
             room.currentTurnIndex = (room.currentTurnIndex + 1) % room.turnOrder.length;
+            const pid = room.turnOrder[room.currentTurnIndex];
+            
+            if (!room.players[pid].isSafe) {
+                foundNextPlayer = true;
+            }
             checks++;
         }
 
