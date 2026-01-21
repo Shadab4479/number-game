@@ -21,10 +21,7 @@
             transition: background 0.5s ease;
         }
 
-        /* Green Highlight for Active Turn */
-        body.my-turn-bg {
-            background: #054d24 !important; /* Dark Green */
-        }
+        body.my-turn-bg { background: #054d24 !important; }
 
         .container {
             width: 90%; max-width: 500px;
@@ -34,6 +31,17 @@
             border-radius: 20px;
             border: 1px solid rgba(255,255,255,0.1);
         }
+
+        /* Status Pills (New Feature) */
+        .player-status-container {
+            display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 15px;
+        }
+        .player-pill {
+            background: rgba(0,0,0,0.3); padding: 8px 15px; border-radius: 20px; font-size: 0.9rem;
+            display: flex; align-items: center; gap: 5px;
+        }
+        .player-pill.ready { background: var(--safe); color: #000; font-weight: bold; }
+        .player-pill.waiting { border: 1px solid #aaa; color: #aaa; }
 
         /* Floating Button */
         .fab {
@@ -58,7 +66,7 @@
             background: #2f3640; padding: 20px; border-radius: 15px; width: 80%; max-width: 300px;
         }
 
-        /* Game Elements */
+        /* Inputs & Buttons */
         input, select, button {
             width: 80%; padding: 12px; margin: 10px 0;
             border-radius: 8px; border: none; font-size: 16px;
@@ -107,18 +115,28 @@
 
         <div id="lobby-screen" class="hidden">
             <h2>Room Code: <span id="display-room-code" style="color:#ffa502"></span></h2>
-            <div id="host-controls" class="hidden">
+            
+            <div id="lobby-players-area">
+                <p>Players Joined:</p>
+                <div class="player-status-container" id="lobby-pills"></div>
+            </div>
+
+            <div id="host-controls" class="hidden" style="margin-top:20px; border-top:1px solid #555; padding-top:10px;">
+                <p>Select Size:</p>
                 <select id="grid-range">
                     <option value="20">1 to 20</option>
                     <option value="30">1 to 30</option>
                 </select>
-                <button onclick="setGameRange()">Confirm Grid</button>
+                <button onclick="setGameRange()">Confirm & Start</button>
             </div>
-            <p id="lobby-status">Waiting for host...</p>
+            <p id="lobby-status" style="margin-top:15px; color:#aaa">Waiting for host...</p>
         </div>
 
         <div id="secret-screen" class="hidden">
             <h2>Pick Secret Number 🤫</h2>
+            
+            <div class="player-status-container" id="secret-pills"></div>
+
             <div id="secret-grid" class="grid"></div>
             <button id="start-btn" class="hidden" onclick="triggerStartGame()">START GAME</button>
         </div>
@@ -137,12 +155,11 @@
         let myName = "";
         let myId = null;
 
-        // --- UI TOGGLES ---
+        // UI Helpers
         function toggleScoreboard() {
             const modal = document.getElementById('score-modal');
             modal.style.display = modal.style.display === 'flex' ? 'none' : 'flex';
         }
-
         function createRoomMenu() {
             myName = document.getElementById('username').value;
             if(myName) socket.emit('createRoom', myName);
@@ -172,17 +189,33 @@
             if(isHost) document.getElementById('host-controls').classList.remove('hidden');
         }
 
+        // --- THIS IS THE MAIN UPDATE ---
         socket.on('updatePlayerList', (players) => {
-            const list = players.map(p => 
+            // 1. Update Hidden Scoreboard
+            const scoreList = players.map(p => 
                 `<li style="padding:10px; background:#444; margin:5px; border-radius:5px; display:flex; justify-content:space-between;">
-                    <span>${p.name} ${p.isSafe ? '✅ (SAFE)' : ''}</span>
-                    <span style="color:#ff4757; font-weight:bold;">${p.score} L</span>
+                    <span>${p.name}</span> <span style="color:#ff4757;">${p.score} L</span>
                 </li>`
             ).join('');
-            document.getElementById('scoreboard-list').innerHTML = list;
+            document.getElementById('scoreboard-list').innerHTML = scoreList;
+
+            // 2. Update Lobby Screen List (Who is in room)
+            const lobbyPills = players.map(p => 
+                `<div class="player-pill" style="background: var(--primary)">👤 ${p.name}</div>`
+            ).join('');
+            document.getElementById('lobby-pills').innerHTML = lobbyPills;
+
+            // 3. Update Secret Screen List (Who picked number)
+            const secretPills = players.map(p => {
+                if (p.secret) {
+                    return `<div class="player-pill ready">✅ ${p.name} Ready</div>`;
+                } else {
+                    return `<div class="player-pill waiting">🤔 ${p.name} Picking...</div>`;
+                }
+            }).join('');
+            document.getElementById('secret-pills').innerHTML = secretPills;
         });
 
-        // Setup Secret Phase
         function setGameRange() {
             socket.emit('setRange', { roomId: myRoomId, range: document.getElementById('grid-range').value });
         }
@@ -200,7 +233,6 @@
         socket.on('allReady', () => document.getElementById('start-btn').classList.remove('hidden'));
         function triggerStartGame() { socket.emit('startGame', myRoomId); }
 
-        // GAME PLAY
         socket.on('gameStarted', ({ range, firstPlayer, firstPlayerName }) => {
             hideAll();
             document.getElementById('game-screen').classList.remove('hidden');
@@ -218,12 +250,12 @@
             const grid = document.getElementById('main-grid');
 
             if(id === socket.id) {
-                msg.innerText = "👉 YOUR TURN (Cut a number)";
+                msg.innerText = "👉 YOUR TURN!";
                 msg.style.color = "#2ecc71";
-                body.classList.add('my-turn-bg'); // Green Background
+                body.classList.add('my-turn-bg');
                 grid.style.pointerEvents = 'auto';
             } else {
-                msg.innerText = `⏳ Waiting for ${name}...`;
+                msg.innerText = `⏳ ${name}'s Turn...`;
                 msg.style.color = "#ccc";
                 body.classList.remove('my-turn-bg');
                 grid.style.pointerEvents = 'none';
@@ -236,30 +268,23 @@
             const cell = document.querySelectorAll('#main-grid .cell')[number-1];
             if(cell) {
                 if(safeNames.length > 0) {
-                    cell.classList.add('safe-cut'); // Green because someone got safe
-                    // alert(`${safeNames.join(', ')} is SAFE!`);
+                    cell.classList.add('safe-cut'); 
                 } else {
-                    cell.classList.add('normal-cut'); // Grey (Waste cut)
+                    cell.classList.add('normal-cut');
                 }
             }
         });
 
-        socket.on('roundOver', (msg) => {
-            alert(msg);
-            // Don't reload, wait for newRoundStart
-        });
+        socket.on('roundOver', (msg) => alert(msg));
 
         socket.on('newRoundStart', () => {
             hideAll();
-            // Reset background
             document.body.classList.remove('my-turn-bg');
             document.getElementById('secret-screen').classList.remove('hidden');
             document.getElementById('start-btn').classList.add('hidden');
             document.querySelector('#secret-screen h2').innerText = "New Round: Pick Secret";
-            // Note: Grid will be regenerated by 'rangeSet' event from server immediately after this
         });
 
-        // Utils
         function hideAll() {
             document.querySelectorAll('.container > div').forEach(d => d.classList.add('hidden'));
         }
