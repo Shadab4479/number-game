@@ -29,14 +29,25 @@
             border: 1px solid rgba(255,255,255,0.1);
         }
 
-        /* --- NEW: Turn Indicator (Only Grid Glows) --- */
+        /* Peek Secret Button */
+        #my-secret-display {
+            background: rgba(0,0,0,0.5);
+            padding: 10px;
+            border-radius: 10px;
+            margin: 10px auto;
+            cursor: pointer;
+            border: 1px solid #ffa502;
+            color: #ffa502;
+            font-weight: bold;
+            display: inline-block;
+            user-select: none;
+        }
+
         .grid-container {
             padding: 10px;
             border-radius: 10px;
             transition: all 0.3s ease;
         }
-        
-        /* Jab meri baari ho, ye class lag jayegi */
         .my-turn-glow {
             border: 2px solid #2ecc71;
             box-shadow: 0 0 20px rgba(46, 204, 113, 0.5);
@@ -93,7 +104,6 @@
         .turn-indicator { font-size: 1.2rem; margin-bottom: 10px; font-weight: bold; }
         #timer { font-size: 2.5rem; color: #ff4757; }
         
-        /* Result Overlay Text */
         #result-overlay {
             position: fixed; top: 20%; left: 50%; transform: translateX(-50%);
             background: rgba(0,0,0,0.9); padding: 20px; border-radius: 10px;
@@ -156,8 +166,10 @@
 
         <div id="game-screen" class="hidden">
             <div id="timer">15</div>
-            <div class="turn-indicator" id="turn-msg">Game Starting...</div>
             
+            <div id="my-secret-display" onclick="peekSecret()">My Secret: 🔒 (Hold/Click)</div>
+
+            <div class="turn-indicator" id="turn-msg">Game Starting...</div>
             <div id="game-grid-wrapper" class="grid-container">
                 <div id="main-grid" class="grid"></div>
             </div>
@@ -170,6 +182,7 @@
         let myRoomId = null;
         let myName = "";
         let myId = null;
+        let mySecretNumber = null; // Store locally for peeking
 
         function toggleScoreboard() {
             const modal = document.getElementById('score-modal');
@@ -212,9 +225,7 @@
             ).join('');
             document.getElementById('scoreboard-list').innerHTML = scoreList;
 
-            const lobbyPills = players.map(p => 
-                `<div class="player-pill" style="background: var(--primary)">👤 ${p.name}</div>`
-            ).join('');
+            const lobbyPills = players.map(p => `<div class="player-pill" style="background: var(--primary)">👤 ${p.name}</div>`).join('');
             document.getElementById('lobby-pills').innerHTML = lobbyPills;
 
             const secretPills = players.map(p => {
@@ -232,10 +243,19 @@
             hideAll();
             document.getElementById('secret-screen').classList.remove('hidden');
             createGrid(range, 'secret-grid', (num, div) => {
+                // UI: Select visually first
                 document.querySelectorAll('#secret-grid .cell').forEach(c => c.classList.remove('selected'));
                 div.classList.add('selected');
+                mySecretNumber = num; // Save for peeking
                 socket.emit('selectSecret', { roomId: myRoomId, number: num });
             });
+        });
+
+        // Error handling for 2-Player Same Number
+        socket.on('selectionError', (msg) => {
+            alert(msg);
+            document.querySelectorAll('#secret-grid .cell').forEach(c => c.classList.remove('selected'));
+            mySecretNumber = null;
         });
 
         socket.on('allReady', () => document.getElementById('start-btn').classList.remove('hidden'));
@@ -260,7 +280,7 @@
             if(id === socket.id) {
                 msg.innerText = "👉 YOUR TURN (Cut a number)";
                 msg.style.color = "#2ecc71";
-                wrapper.classList.add('my-turn-glow'); // Only Grid Glows
+                wrapper.classList.add('my-turn-glow'); 
                 grid.style.pointerEvents = 'auto';
             } else {
                 msg.innerText = `⏳ Waiting for ${name}...`;
@@ -288,6 +308,7 @@
             showOverlay(msg);
         });
 
+        // --- NEW ROUND CLEANUP ---
         socket.on('newRoundStart', () => {
             setTimeout(() => {
                 document.getElementById('result-overlay').style.display = 'none';
@@ -295,16 +316,33 @@
                 document.getElementById('game-grid-wrapper').classList.remove('my-turn-glow');
                 document.getElementById('secret-screen').classList.remove('hidden');
                 document.getElementById('start-btn').classList.add('hidden');
+                
+                // Clear old statuses locally
+                document.getElementById('secret-pills').innerHTML = '';
                 document.querySelector('#secret-screen h2').innerText = "New Round: Pick Secret";
+                
+                // Reset local secret
+                mySecretNumber = null;
+                document.getElementById('my-secret-display').innerText = "My Secret: 🔒 (Hold/Click)";
             }, 1000);
         });
+
+        // Peek Function
+        function peekSecret() {
+            if(!mySecretNumber) return;
+            const el = document.getElementById('my-secret-display');
+            el.innerText = `My Secret: ${mySecretNumber}`;
+            setTimeout(() => {
+                el.innerText = "My Secret: 🔒 (Hold/Click)";
+            }, 1500);
+        }
 
         function showOverlay(text) {
             const el = document.getElementById('result-overlay');
             el.innerText = text;
             el.style.display = 'block';
             setTimeout(() => {
-                if(!text.includes("LOSE")) el.style.display = 'none'; // Keep showing if game over
+                if(!text.includes("LOSE") && !text.includes("DEADLOCK")) el.style.display = 'none'; 
             }, 2000);
         }
 
