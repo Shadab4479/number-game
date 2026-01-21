@@ -3,19 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Number Ninja</title>
+    <title>Reverse Number Game</title>
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap" rel="stylesheet">
     <style>
-        /* --- STYLISH CSS --- */
-        :root {
-            --primary: #6C63FF;
-            --dark: #1a1a2e;
-            --light: #e0e0e0;
-            --glass: rgba(255, 255, 255, 0.1);
-        }
+        :root { --primary: #ff4757; --safe: #2ecc71; --dark: #1e272e; --glass: rgba(255, 255, 255, 0.1); }
+        
         body {
             font-family: 'Poppins', sans-serif;
-            background: linear-gradient(135deg, #16213e, #1a1a2e);
+            background: #1e272e;
             color: white;
             margin: 0;
             min-height: 100vh;
@@ -23,140 +18,115 @@
             align-items: center;
             justify-content: center;
             text-align: center;
+            transition: background 0.5s ease;
         }
+
+        /* Green Highlight for Active Turn */
+        body.my-turn-bg {
+            background: #054d24 !important; /* Dark Green */
+        }
+
         .container {
-            width: 90%;
-            max-width: 500px;
+            width: 90%; max-width: 500px;
             background: var(--glass);
             backdrop-filter: blur(10px);
             padding: 2rem;
             border-radius: 20px;
-            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
-            border: 1px solid rgba(255, 255, 255, 0.18);
-            transition: all 0.3s ease;
+            border: 1px solid rgba(255,255,255,0.1);
         }
-        h1, h2 { margin-bottom: 20px; color: var(--primary); }
-        
-        input, select {
-            width: 80%;
-            padding: 12px;
-            margin: 10px 0;
-            border-radius: 8px;
-            border: none;
-            background: rgba(255,255,255,0.1);
-            color: white;
-            font-size: 16px;
-            text-align: center;
+
+        /* Floating Button */
+        .fab {
+            position: fixed; bottom: 20px; right: 20px;
+            width: 60px; height: 60px;
+            background: #ffa502;
+            border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 24px; cursor: pointer;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            z-index: 100;
         }
-        
-        button {
-            width: 100%;
-            padding: 12px;
-            margin-top: 10px;
-            border-radius: 8px;
-            border: none;
-            background: var(--primary);
-            color: white;
-            font-size: 16px;
-            font-weight: bold;
-            cursor: pointer;
-            transition: transform 0.2s;
+
+        /* Modal Scoreboard */
+        .modal {
+            display: none; position: fixed; top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(0,0,0,0.8);
+            z-index: 200; align-items: center; justify-content: center;
         }
-        button:hover { transform: scale(1.05); }
-        button:disabled { background: #555; cursor: not-allowed; }
-        
-        .hidden { display: none; }
-        
-        /* Grid System */
-        .grid {
-            display: grid;
-            grid-template-columns: repeat(5, 1fr);
-            gap: 10px;
-            margin-top: 20px;
+        .modal-content {
+            background: #2f3640; padding: 20px; border-radius: 15px; width: 80%; max-width: 300px;
         }
+
+        /* Game Elements */
+        input, select, button {
+            width: 80%; padding: 12px; margin: 10px 0;
+            border-radius: 8px; border: none; font-size: 16px;
+        }
+        button { background: var(--primary); color: white; cursor: pointer; font-weight: bold; }
+        
+        .grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-top: 20px; }
         .cell {
-            background: rgba(255,255,255,0.1);
-            padding: 15px 0;
-            border-radius: 8px;
-            cursor: pointer;
-            font-weight: bold;
-            transition: 0.2s;
+            background: rgba(255,255,255,0.1); padding: 15px 0;
+            border-radius: 5px; cursor: pointer;
         }
-        .cell:hover { background: var(--primary); }
-        .cell.selected { border: 2px solid #00ff88; box-shadow: 0 0 10px #00ff88; }
-        .cell.cut { background: #ff4757; opacity: 0.5; pointer-events: none; text-decoration: line-through; }
-        
-        /* Lists */
-        ul { list-style: none; padding: 0; }
-        li { background: rgba(0,0,0,0.2); margin: 5px; padding: 10px; border-radius: 5px; display: flex; justify-content: space-between;}
-        
-        .code-box {
-            font-size: 24px;
-            letter-spacing: 5px;
-            background: rgba(0,0,0,0.3);
-            padding: 10px;
-            border-radius: 10px;
-            margin: 10px 0;
-            cursor: pointer;
-        }
-        #timer { font-size: 3rem; font-weight: bold; color: #ff4757; }
-        .status { margin-top: 10px; font-size: 0.9rem; color: #aaa; }
+        .cell.selected { border: 2px solid #ffa502; background: rgba(255,165,2,0.2); }
+        .cell.safe-cut { background: var(--safe); color: #000; font-weight: bold; pointer-events: none; }
+        .cell.normal-cut { background: #555; opacity: 0.3; pointer-events: none; }
+
+        .hidden { display: none; }
+        .turn-indicator { font-size: 1.2rem; margin-bottom: 10px; font-weight: bold; }
+        #timer { font-size: 2.5rem; color: #ff4757; }
     </style>
 </head>
 <body>
 
+    <div class="fab" onclick="toggleScoreboard()">🏆</div>
+
+    <div id="score-modal" class="modal" onclick="toggleScoreboard()">
+        <div class="modal-content" onclick="event.stopPropagation()">
+            <h2>🏆 Leaderboard (Losses)</h2>
+            <ul id="scoreboard-list" style="list-style: none; padding: 0;"></ul>
+            <button onclick="toggleScoreboard()">Close</button>
+        </div>
+    </div>
+
     <div class="container">
         <div id="menu-screen">
-            <h1>NUMBER NINJA 🥷</h1>
+            <h1>ESCAPE THE GRID 🏃‍♂️</h1>
+            <p>If your number is cut, you are SAFE!</p>
             <input type="text" id="username" placeholder="Enter Your Name">
             <button onclick="createRoomMenu()">Create Room</button>
             <button onclick="joinRoomMenu()">Join Room</button>
         </div>
 
         <div id="join-input-screen" class="hidden">
-            <h2>Join Squad</h2>
-            <input type="number" id="room-code-input" placeholder="Enter Room Code">
-            <button onclick="joinRoom()">Enter Game</button>
-            <button onclick="backToMenu()" style="background: transparent; border: 1px solid white;">Back</button>
+            <input type="number" id="room-code-input" placeholder="Room Code">
+            <button onclick="joinRoom()">Enter</button>
         </div>
 
         <div id="lobby-screen" class="hidden">
-            <h2>Room Lobby</h2>
-            <p>Share this code with friends:</p>
-            <div class="code-box" id="display-room-code" onclick="copyCode()">----</div>
-            
+            <h2>Room Code: <span id="display-room-code" style="color:#ffa502"></span></h2>
             <div id="host-controls" class="hidden">
-                <p>Select Grid Size:</p>
                 <select id="grid-range">
-                    <option value="10">1 to 10</option>
-                    <option value="20" selected>1 to 20</option>
+                    <option value="20">1 to 20</option>
                     <option value="30">1 to 30</option>
-                    <option value="50">1 to 50</option>
                 </select>
                 <button onclick="setGameRange()">Confirm Grid</button>
             </div>
-
-            <h3>Players:</h3>
-            <ul id="lobby-list"></ul>
-            <p class="status" id="lobby-status">Waiting for host...</p>
+            <p id="lobby-status">Waiting for host...</p>
         </div>
 
         <div id="secret-screen" class="hidden">
-            <h2>Shh! Pick a Secret 🤫</h2>
-            <p>Click one number. Others won't see it.</p>
+            <h2>Pick Secret Number 🤫</h2>
             <div id="secret-grid" class="grid"></div>
             <button id="start-btn" class="hidden" onclick="triggerStartGame()">START GAME</button>
         </div>
 
         <div id="game-screen" class="hidden">
             <div id="timer">15</div>
-            <h3 id="turn-msg">Game Starting...</h3>
+            <div class="turn-indicator" id="turn-msg">Game Starting...</div>
             <div id="main-grid" class="grid"></div>
-            
-            <div style="margin-top: 20px; border-top: 1px solid #555;">
-                <h4>Scoreboard (Losses)</h4>
-                <ul id="game-player-list"></ul>
-            </div>
         </div>
     </div>
 
@@ -165,160 +135,141 @@
         const socket = io();
         let myRoomId = null;
         let myName = "";
+        let myId = null;
 
-        // UI Functions
-        function backToMenu() {
-            document.querySelectorAll('.container > div').forEach(d => d.classList.add('hidden'));
-            document.getElementById('menu-screen').classList.remove('hidden');
+        // --- UI TOGGLES ---
+        function toggleScoreboard() {
+            const modal = document.getElementById('score-modal');
+            modal.style.display = modal.style.display === 'flex' ? 'none' : 'flex';
         }
 
         function createRoomMenu() {
             myName = document.getElementById('username').value;
-            if(!myName) return alert("Naam to likho bhai!");
-            socket.emit('createRoom', myName);
+            if(myName) socket.emit('createRoom', myName);
         }
-
         function joinRoomMenu() {
             myName = document.getElementById('username').value;
-            if(!myName) return alert("Naam to likho bhai!");
-            document.getElementById('menu-screen').classList.add('hidden');
-            document.getElementById('join-input-screen').classList.remove('hidden');
+            if(myName) {
+                document.getElementById('menu-screen').classList.add('hidden');
+                document.getElementById('join-input-screen').classList.remove('hidden');
+            }
         }
-
         function joinRoom() {
             const code = document.getElementById('room-code-input').value;
             socket.emit('joinRoom', { name: myName, roomId: code });
         }
 
-        function copyCode() {
-            const code = document.getElementById('display-room-code').innerText;
-            navigator.clipboard.writeText(code);
-            alert("Code Copied!");
-        }
+        // --- SOCKET LOGIC ---
+        socket.on('connect', () => { myId = socket.id; });
 
-        // --- SOCKET EVENTS ---
-
-        socket.on('roomCreated', (roomId) => {
-            myRoomId = roomId;
-            enterLobby(roomId, true);
-        });
-
-        socket.on('roomJoined', (data) => {
-            myRoomId = data.roomId;
-            enterLobby(data.roomId, data.isHost);
-        });
-
-        socket.on('errorMsg', (msg) => alert(msg));
-
-        function enterLobby(roomId, isHost) {
-            document.querySelectorAll('.container > div').forEach(d => d.classList.add('hidden'));
+        socket.on('roomCreated', (id) => { myRoomId = id; enterLobby(id, true); });
+        socket.on('roomJoined', (data) => { myRoomId = data.roomId; enterLobby(data.roomId, data.isHost); });
+        
+        function enterLobby(id, isHost) {
+            hideAll();
             document.getElementById('lobby-screen').classList.remove('hidden');
-            document.getElementById('display-room-code').innerText = roomId;
-            
-            if(isHost) {
-                document.getElementById('host-controls').classList.remove('hidden');
-            } else {
-                document.getElementById('host-controls').classList.add('hidden');
-                document.getElementById('lobby-status').innerText = "Host grid select kar raha hai...";
-            }
+            document.getElementById('display-room-code').innerText = id;
+            if(isHost) document.getElementById('host-controls').classList.remove('hidden');
         }
 
         socket.on('updatePlayerList', (players) => {
-            const list = players.map(p => `<li>
-                <span>${p.name} ${p.secret ? '✅' : '...'}</span>
-                <span style="color: #ff4757;">${p.score} L</span>
-            </li>`).join('');
-            
-            document.getElementById('lobby-list').innerHTML = list;
-            document.getElementById('game-player-list').innerHTML = list;
+            const list = players.map(p => 
+                `<li style="padding:10px; background:#444; margin:5px; border-radius:5px; display:flex; justify-content:space-between;">
+                    <span>${p.name} ${p.isSafe ? '✅ (SAFE)' : ''}</span>
+                    <span style="color:#ff4757; font-weight:bold;">${p.score} L</span>
+                </li>`
+            ).join('');
+            document.getElementById('scoreboard-list').innerHTML = list;
         });
 
-        // Host clicks "Confirm Grid"
+        // Setup Secret Phase
         function setGameRange() {
-            const range = document.getElementById('grid-range').value;
-            socket.emit('setRange', { roomId: myRoomId, range: range });
+            socket.emit('setRange', { roomId: myRoomId, range: document.getElementById('grid-range').value });
         }
-
-        // Show Secret Grid to ALL
+        
         socket.on('rangeSet', (range) => {
-            document.getElementById('lobby-screen').classList.add('hidden');
+            hideAll();
             document.getElementById('secret-screen').classList.remove('hidden');
             createGrid(range, 'secret-grid', (num, div) => {
-                // Remove previous selection style
                 document.querySelectorAll('#secret-grid .cell').forEach(c => c.classList.remove('selected'));
                 div.classList.add('selected');
                 socket.emit('selectSecret', { roomId: myRoomId, number: num });
-                document.querySelector('#secret-screen h2').innerText = "Waiting for others...";
             });
         });
 
-        socket.on('allReady', () => {
-            // Only host sees start button, handled by previous logic but double check UI
-            if(!document.getElementById('host-controls').classList.contains('hidden')) {
-                document.getElementById('start-btn').classList.remove('hidden');
-            }
-        });
+        socket.on('allReady', () => document.getElementById('start-btn').classList.remove('hidden'));
+        function triggerStartGame() { socket.emit('startGame', myRoomId); }
 
-        function triggerStartGame() {
-            socket.emit('startGame', myRoomId);
-        }
-
-        // START GAME
-        socket.on('gameStarted', ({ range, firstPlayer }) => {
-            document.getElementById('secret-screen').classList.add('hidden');
+        // GAME PLAY
+        socket.on('gameStarted', ({ range, firstPlayer, firstPlayerName }) => {
+            hideAll();
             document.getElementById('game-screen').classList.remove('hidden');
             createGrid(range, 'main-grid', (num) => {
                 socket.emit('cutNumber', { roomId: myRoomId, number: num });
             });
-            updateTurnUI(firstPlayer);
+            updateTurnUI(firstPlayer, firstPlayerName);
         });
 
-        socket.on('turnChange', (pid) => updateTurnUI(pid));
-        
-        socket.on('timerUpdate', (t) => document.getElementById('timer').innerText = t);
+        socket.on('turnChange', ({ id, name }) => updateTurnUI(id, name));
 
-        socket.on('numberCutResult', ({ number, caughtNames }) => {
-            const cells = document.querySelectorAll('#main-grid .cell');
-            if(cells[number-1]) cells[number-1].classList.add('cut');
-            
-            if(caughtNames.length > 0) {
-                alert(`Caught: ${caughtNames.join(', ')}`);
-            }
-        });
+        function updateTurnUI(id, name) {
+            const msg = document.getElementById('turn-msg');
+            const body = document.body;
+            const grid = document.getElementById('main-grid');
 
-        socket.on('message', (msg) => alert(msg));
-        socket.on('gameOver', (winner) => {
-            alert(`GAME OVER! Winner: ${winner}`);
-            location.reload();
-        });
-
-        // Helper
-        function createGrid(range, containerId, onClick) {
-            const container = document.getElementById(containerId);
-            container.innerHTML = '';
-            for(let i=1; i<=range; i++) {
-                const div = document.createElement('div');
-                div.className = 'cell';
-                div.innerText = i;
-                div.onclick = () => onClick(i, div);
-                container.appendChild(div);
+            if(id === socket.id) {
+                msg.innerText = "👉 YOUR TURN (Cut a number)";
+                msg.style.color = "#2ecc71";
+                body.classList.add('my-turn-bg'); // Green Background
+                grid.style.pointerEvents = 'auto';
+            } else {
+                msg.innerText = `⏳ Waiting for ${name}...`;
+                msg.style.color = "#ccc";
+                body.classList.remove('my-turn-bg');
+                grid.style.pointerEvents = 'none';
             }
         }
 
-        function updateTurnUI(pid) {
-            const msg = document.getElementById('turn-msg');
-            const grid = document.getElementById('main-grid');
-            
-            if(pid === socket.id) {
-                msg.innerText = "👉 YOUR TURN!";
-                msg.style.color = "#00ff88";
-                grid.style.pointerEvents = 'auto';
-                grid.style.opacity = '1';
-            } else {
-                msg.innerText = "Waiting for opponent...";
-                msg.style.color = "#aaa";
-                grid.style.pointerEvents = 'none';
-                grid.style.opacity = '0.5';
+        socket.on('timerUpdate', (t) => document.getElementById('timer').innerText = t);
+
+        socket.on('numberCutResult', ({ number, safeNames }) => {
+            const cell = document.querySelectorAll('#main-grid .cell')[number-1];
+            if(cell) {
+                if(safeNames.length > 0) {
+                    cell.classList.add('safe-cut'); // Green because someone got safe
+                    // alert(`${safeNames.join(', ')} is SAFE!`);
+                } else {
+                    cell.classList.add('normal-cut'); // Grey (Waste cut)
+                }
+            }
+        });
+
+        socket.on('roundOver', (msg) => {
+            alert(msg);
+            // Don't reload, wait for newRoundStart
+        });
+
+        socket.on('newRoundStart', () => {
+            hideAll();
+            // Reset background
+            document.body.classList.remove('my-turn-bg');
+            document.getElementById('secret-screen').classList.remove('hidden');
+            document.getElementById('start-btn').classList.add('hidden');
+            document.querySelector('#secret-screen h2').innerText = "New Round: Pick Secret";
+            // Note: Grid will be regenerated by 'rangeSet' event from server immediately after this
+        });
+
+        // Utils
+        function hideAll() {
+            document.querySelectorAll('.container > div').forEach(d => d.classList.add('hidden'));
+        }
+        function createGrid(range, id, callback) {
+            const con = document.getElementById(id); con.innerHTML='';
+            for(let i=1; i<=range; i++) {
+                const d = document.createElement('div');
+                d.className = 'cell'; d.innerText=i;
+                d.onclick = () => callback(i, d);
+                con.appendChild(d);
             }
         }
     </script>
