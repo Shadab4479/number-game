@@ -3,113 +3,33 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Reverse Number Game</title>
+    <title>Reverse Number Game - Desi Edition</title>
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap" rel="stylesheet">
-    <style>
+    <link rel="stylesheet" href="style.css"> <style>
         :root { --primary: #ff4757; --safe: #2ecc71; --dark: #1e272e; --glass: rgba(255, 255, 255, 0.1); }
-        
-        body {
-            font-family: 'Poppins', sans-serif;
-            background: #1e272e;
-            color: white;
-            margin: 0;
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            text-align: center;
-        }
-
-        .container {
-            width: 90%; max-width: 500px;
-            background: var(--glass);
-            backdrop-filter: blur(10px);
-            padding: 2rem;
-            border-radius: 20px;
-            border: 1px solid rgba(255,255,255,0.1);
-        }
-
-        /* Peek Secret Button */
-        #my-secret-display {
-            background: rgba(0,0,0,0.5);
-            padding: 10px;
-            border-radius: 10px;
-            margin: 10px auto;
-            cursor: pointer;
-            border: 1px solid #ffa502;
-            color: #ffa502;
-            font-weight: bold;
-            display: inline-block;
-            user-select: none;
-        }
-
-        .grid-container {
-            padding: 10px;
-            border-radius: 10px;
-            transition: all 0.3s ease;
-        }
-        .my-turn-glow {
-            border: 2px solid #2ecc71;
-            box-shadow: 0 0 20px rgba(46, 204, 113, 0.5);
-            background: rgba(46, 204, 113, 0.1);
-        }
-
-        .player-status-container {
-            display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 15px;
-        }
-        .player-pill {
-            background: rgba(0,0,0,0.3); padding: 8px 15px; border-radius: 20px; font-size: 0.9rem;
-            display: flex; align-items: center; gap: 5px;
-        }
+        body { font-family: 'Poppins', sans-serif; background: #1e272e; color: white; margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; text-align: center; }
+        .container { width: 90%; max-width: 500px; background: var(--glass); backdrop-filter: blur(10px); padding: 2rem; border-radius: 20px; border: 1px solid rgba(255,255,255,0.1); }
+        #my-secret-display { background: rgba(0,0,0,0.5); padding: 10px; border-radius: 10px; margin: 10px auto; cursor: pointer; border: 1px solid #ffa502; color: #ffa502; font-weight: bold; display: inline-block; user-select: none; }
+        .grid-container { padding: 10px; border-radius: 10px; transition: all 0.3s ease; }
+        .my-turn-glow { border: 2px solid #2ecc71; box-shadow: 0 0 20px rgba(46, 204, 113, 0.5); background: rgba(46, 204, 113, 0.1); }
+        .player-status-container { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 15px; }
+        .player-pill { background: rgba(0,0,0,0.3); padding: 8px 15px; border-radius: 20px; font-size: 0.9rem; display: flex; align-items: center; gap: 5px; }
         .player-pill.ready { background: var(--safe); color: #000; font-weight: bold; }
         .player-pill.waiting { border: 1px solid #aaa; color: #aaa; }
-
-        .fab {
-            position: fixed; bottom: 20px; right: 20px;
-            width: 60px; height: 60px;
-            background: #ffa502;
-            border-radius: 50%;
-            display: flex; align-items: center; justify-content: center;
-            font-size: 24px; cursor: pointer;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
-            z-index: 100;
-        }
-
-        .modal {
-            display: none; position: fixed; top: 0; left: 0;
-            width: 100%; height: 100%;
-            background: rgba(0,0,0,0.8);
-            z-index: 200; align-items: center; justify-content: center;
-        }
-        .modal-content {
-            background: #2f3640; padding: 20px; border-radius: 15px; width: 80%; max-width: 300px;
-        }
-
-        input, select, button {
-            width: 80%; padding: 12px; margin: 10px 0;
-            border-radius: 8px; border: none; font-size: 16px;
-        }
+        .fab { position: fixed; bottom: 20px; right: 20px; width: 60px; height: 60px; background: #ffa502; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 24px; cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.3); z-index: 100; }
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 200; align-items: center; justify-content: center; }
+        .modal-content { background: #2f3640; padding: 20px; border-radius: 15px; width: 80%; max-width: 300px; }
+        input, select, button { width: 80%; padding: 12px; margin: 10px 0; border-radius: 8px; border: none; font-size: 16px; }
         button { background: var(--primary); color: white; cursor: pointer; font-weight: bold; }
-        
         .grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-top: 20px; }
-        .cell {
-            background: rgba(255,255,255,0.1); padding: 15px 0;
-            border-radius: 5px; cursor: pointer;
-        }
+        .cell { background: rgba(255,255,255,0.1); padding: 15px 0; border-radius: 5px; cursor: pointer; }
         .cell.selected { border: 2px solid #ffa502; background: rgba(255,165,2,0.2); }
         .cell.safe-cut { background: var(--safe); color: #000; font-weight: bold; pointer-events: none; }
         .cell.normal-cut { background: #555; opacity: 0.3; pointer-events: none; }
-
         .hidden { display: none; }
         .turn-indicator { font-size: 1.2rem; margin-bottom: 10px; font-weight: bold; }
         #timer { font-size: 2.5rem; color: #ff4757; }
-        
-        #result-overlay {
-            position: fixed; top: 20%; left: 50%; transform: translateX(-50%);
-            background: rgba(0,0,0,0.9); padding: 20px; border-radius: 10px;
-            font-size: 1.5rem; font-weight: bold; color: #ffa502;
-            z-index: 300; display: none; border: 2px solid white;
-        }
+        #result-overlay { position: fixed; top: 20%; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.9); padding: 20px; border-radius: 10px; font-size: 1.5rem; font-weight: bold; color: #ffa502; z-index: 300; display: none; border: 2px solid white; }
     </style>
 </head>
 <body>
@@ -143,10 +63,9 @@
         <div id="lobby-screen" class="hidden">
             <h2>Room Code: <span id="display-room-code" style="color:#ffa502"></span></h2>
             <div id="lobby-players-area">
-                <p>Players Joined:</p>
                 <div class="player-status-container" id="lobby-pills"></div>
             </div>
-            <div id="host-controls" class="hidden" style="margin-top:20px; border-top:1px solid #555; padding-top:10px;">
+            <div id="host-controls" class="hidden">
                 <p>Select Size:</p>
                 <select id="grid-range">
                     <option value="20">1 to 20</option>
@@ -154,7 +73,6 @@
                 </select>
                 <button onclick="setGameRange()">Confirm & Start</button>
             </div>
-            <p id="lobby-status" style="margin-top:15px; color:#aaa">Waiting for host...</p>
         </div>
 
         <div id="secret-screen" class="hidden">
@@ -165,10 +83,8 @@
         </div>
 
         <div id="game-screen" class="hidden">
-            <div id="timer">15</div>
-            
+            <div id="timer">30</div>
             <div id="my-secret-display" onclick="peekSecret()">My Secret: 🔒 (Hold/Click)</div>
-
             <div class="turn-indicator" id="turn-msg">Game Starting...</div>
             <div id="game-grid-wrapper" class="grid-container">
                 <div id="main-grid" class="grid"></div>
@@ -177,187 +93,6 @@
     </div>
 
     <script src="/socket.io/socket.io.js"></script>
-    <script>
-        const socket = io();
-        let myRoomId = null;
-        let myName = "";
-        let myId = null;
-        let mySecretNumber = null; // Store locally for peeking
-
-        function toggleScoreboard() {
-            const modal = document.getElementById('score-modal');
-            modal.style.display = modal.style.display === 'flex' ? 'none' : 'flex';
-        }
-        function createRoomMenu() {
-            myName = document.getElementById('username').value;
-            if(myName) socket.emit('createRoom', myName);
-        }
-        function joinRoomMenu() {
-            myName = document.getElementById('username').value;
-            if(myName) {
-                document.getElementById('menu-screen').classList.add('hidden');
-                document.getElementById('join-input-screen').classList.remove('hidden');
-            }
-        }
-        function joinRoom() {
-            const code = document.getElementById('room-code-input').value;
-            socket.emit('joinRoom', { name: myName, roomId: code });
-        }
-
-        socket.on('connect', () => { myId = socket.id; });
-
-        socket.on('roomCreated', (id) => { myRoomId = id; enterLobby(id, true); });
-        socket.on('roomJoined', (data) => { myRoomId = data.roomId; enterLobby(data.roomId, data.isHost); });
-        
-        function enterLobby(id, isHost) {
-            hideAll();
-            document.getElementById('lobby-screen').classList.remove('hidden');
-            document.getElementById('display-room-code').innerText = id;
-            if(isHost) document.getElementById('host-controls').classList.remove('hidden');
-        }
-
-        socket.on('updatePlayerList', (players) => {
-            const scoreList = players.map(p => 
-                `<li style="padding:10px; background:#444; margin:5px; border-radius:5px; display:flex; justify-content:space-between;">
-                    <span>${p.name} ${p.isSafe ? '✅' : ''}</span> 
-                    <span style="color:#ff4757;">${p.score} L</span>
-                </li>`
-            ).join('');
-            document.getElementById('scoreboard-list').innerHTML = scoreList;
-
-            const lobbyPills = players.map(p => `<div class="player-pill" style="background: var(--primary)">👤 ${p.name}</div>`).join('');
-            document.getElementById('lobby-pills').innerHTML = lobbyPills;
-
-            const secretPills = players.map(p => {
-                if (p.secret) return `<div class="player-pill ready">✅ ${p.name} Ready</div>`;
-                return `<div class="player-pill waiting">🤔 ${p.name} Picking...</div>`;
-            }).join('');
-            document.getElementById('secret-pills').innerHTML = secretPills;
-        });
-
-        function setGameRange() {
-            socket.emit('setRange', { roomId: myRoomId, range: document.getElementById('grid-range').value });
-        }
-        
-        socket.on('rangeSet', (range) => {
-            hideAll();
-            document.getElementById('secret-screen').classList.remove('hidden');
-            createGrid(range, 'secret-grid', (num, div) => {
-                // UI: Select visually first
-                document.querySelectorAll('#secret-grid .cell').forEach(c => c.classList.remove('selected'));
-                div.classList.add('selected');
-                mySecretNumber = num; // Save for peeking
-                socket.emit('selectSecret', { roomId: myRoomId, number: num });
-            });
-        });
-
-        // Error handling for 2-Player Same Number
-        socket.on('selectionError', (msg) => {
-            alert(msg);
-            document.querySelectorAll('#secret-grid .cell').forEach(c => c.classList.remove('selected'));
-            mySecretNumber = null;
-        });
-
-        socket.on('allReady', () => document.getElementById('start-btn').classList.remove('hidden'));
-        function triggerStartGame() { socket.emit('startGame', myRoomId); }
-
-        socket.on('gameStarted', ({ range, firstPlayer, firstPlayerName }) => {
-            hideAll();
-            document.getElementById('game-screen').classList.remove('hidden');
-            createGrid(range, 'main-grid', (num) => {
-                socket.emit('cutNumber', { roomId: myRoomId, number: num });
-            });
-            updateTurnUI(firstPlayer, firstPlayerName);
-        });
-
-        socket.on('turnChange', ({ id, name }) => updateTurnUI(id, name));
-
-        function updateTurnUI(id, name) {
-            const msg = document.getElementById('turn-msg');
-            const wrapper = document.getElementById('game-grid-wrapper');
-            const grid = document.getElementById('main-grid');
-
-            if(id === socket.id) {
-                msg.innerText = "👉 YOUR TURN (Cut a number)";
-                msg.style.color = "#2ecc71";
-                wrapper.classList.add('my-turn-glow'); 
-                grid.style.pointerEvents = 'auto';
-            } else {
-                msg.innerText = `⏳ Waiting for ${name}...`;
-                msg.style.color = "#ccc";
-                wrapper.classList.remove('my-turn-glow');
-                grid.style.pointerEvents = 'none';
-            }
-        }
-
-        socket.on('timerUpdate', (t) => document.getElementById('timer').innerText = t);
-
-        socket.on('numberCutResult', ({ number, safeNames }) => {
-            const cell = document.querySelectorAll('#main-grid .cell')[number-1];
-            if(cell) {
-                if(safeNames.length > 0) {
-                    cell.classList.add('safe-cut');
-                    showOverlay(`${safeNames.join(', ')} is SAFE! 🛡️`);
-                } else {
-                    cell.classList.add('normal-cut');
-                }
-            }
-        });
-
-        socket.on('roundOver', (msg) => {
-            showOverlay(msg);
-        });
-
-        // --- NEW ROUND CLEANUP ---
-        socket.on('newRoundStart', () => {
-            setTimeout(() => {
-                document.getElementById('result-overlay').style.display = 'none';
-                hideAll();
-                document.getElementById('game-grid-wrapper').classList.remove('my-turn-glow');
-                document.getElementById('secret-screen').classList.remove('hidden');
-                document.getElementById('start-btn').classList.add('hidden');
-                
-                // Clear old statuses locally
-                document.getElementById('secret-pills').innerHTML = '';
-                document.querySelector('#secret-screen h2').innerText = "New Round: Pick Secret";
-                
-                // Reset local secret
-                mySecretNumber = null;
-                document.getElementById('my-secret-display').innerText = "My Secret: 🔒 (Hold/Click)";
-            }, 1000);
-        });
-
-        // Peek Function
-        function peekSecret() {
-            if(!mySecretNumber) return;
-            const el = document.getElementById('my-secret-display');
-            el.innerText = `My Secret: ${mySecretNumber}`;
-            setTimeout(() => {
-                el.innerText = "My Secret: 🔒 (Hold/Click)";
-            }, 1500);
-        }
-
-        function showOverlay(text) {
-            const el = document.getElementById('result-overlay');
-            el.innerText = text;
-            el.style.display = 'block';
-            setTimeout(() => {
-                if(!text.includes("LOSE") && !text.includes("DEADLOCK")) el.style.display = 'none'; 
-            }, 2000);
-        }
-
-        function hideAll() {
-            document.querySelectorAll('.container > div').forEach(d => d.classList.add('hidden'));
-        }
-        function createGrid(range, id, callback) {
-            const con = document.getElementById(id); con.innerHTML='';
-            for(let i=1; i<=range; i++) {
-                const d = document.createElement('div');
-                d.className = 'cell'; d.innerText=i;
-                d.onclick = () => callback(i, d);
-                con.appendChild(d);
-            }
-        }
-    </script>
+    <script src="script.js"></script>
 </body>
 </html>
