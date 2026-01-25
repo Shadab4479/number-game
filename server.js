@@ -1,256 +1,192 @@
-const express = require('express');
-const http = require('http');
-const path = require('path');
-const { Server } = require('socket.io');
+const socket = io();
+let myRoomId = null;
+let myName = "";
+let myId = null;
+let mySecretNumber = null;
 
-const app = express();
-const server = http.createServer(app);
-const io = new Server(server);
-
-app.use(express.static(path.join(__dirname, 'public')));
-
-app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
-let rooms = {}; 
-// 1. Updated Time Limit to 30 Seconds
-const TURN_TIME_LIMIT = 30; 
-
-function generateRoomId() {
-    return Math.floor(1000 + Math.random() * 9000).toString();
+// --- Funny Validations ---
+function checkName() {
+    myName = document.getElementById('username').value.trim();
+    if(!myName) {
+        alert("⚠️ Abe naam to daal de! Bina naam ke Ghost ban ke khelega kya? 👻");
+        return false;
+    }
+    return true;
 }
 
-io.on('connection', (socket) => {
-    
-    // Create Room
-    socket.on('createRoom', (playerName) => {
-        let roomId;
-        do {
-            roomId = generateRoomId();
-        } while (rooms[roomId]);
+function createRoomMenu() {
+    if(checkName()) socket.emit('createRoom', myName);
+}
 
-        rooms[roomId] = {
-            id: roomId,
-            players: {}, 
-            host: socket.id,
-            range: 20, 
-            turnOrder: [],
-            currentTurnIndex: 0,
-            gameActive: false,
-            secretPhase: true,
-            timer: null
-        };
-        joinRoomLogic(socket, roomId, playerName);
-        socket.emit('roomCreated', roomId);
-    });
-
-    // Join Room
-    socket.on('joinRoom', ({ name, roomId }) => {
-        if (rooms[roomId]) {
-            joinRoomLogic(socket, roomId, name);
-        } else {
-            socket.emit('errorMsg', "Invalid Room Code!");
-        }
-    });
-
-    function joinRoomLogic(socket, roomId, name) {
-        socket.join(roomId);
-        const room = rooms[roomId];
-        
-        room.players[socket.id] = {
-            id: socket.id,
-            name: name,
-            secret: null,
-            isSafe: false,
-            score: 0,
-            roomId: roomId 
-        };
-
-        socket.emit('roomJoined', { roomId, isHost: room.host === socket.id });
-        io.to(roomId).emit('updatePlayerList', Object.values(room.players));
+function joinRoomMenu() {
+    if(checkName()) {
+        document.getElementById('menu-screen').classList.add('hidden');
+        document.getElementById('join-input-screen').classList.remove('hidden');
     }
+}
 
-    // Set Range
-    socket.on('setRange', ({ roomId, range }) => {
-        if (rooms[roomId] && rooms[roomId].host === socket.id) {
-            rooms[roomId].range = parseInt(range);
-            io.to(roomId).emit('rangeSet', rooms[roomId].range); 
-        }
-    });
-
-    // Select Secret
-    socket.on('selectSecret', ({ roomId, number }) => {
-        const room = rooms[roomId];
-        if (!room) return;
-
-        const allPlayerIds = Object.keys(room.players);
-        if (allPlayerIds.length === 2) {
-            const otherPlayerId = allPlayerIds.find(id => id !== socket.id);
-            if (otherPlayerId && room.players[otherPlayerId].secret == number) {
-                socket.emit('selectionError', '⛔ Same number allowed nahi hai 2 players mein!');
-                return; 
-            }
-        }
-
-        if (room.players[socket.id]) {
-            room.players[socket.id].secret = number;
-            io.to(roomId).emit('updatePlayerList', Object.values(room.players));
-            
-            const allSelected = Object.values(room.players).every(p => p.secret !== null);
-            if (allSelected) {
-                io.to(room.host).emit('allReady'); 
-            }
-        }
-    });
-
-    // Start Game
-    socket.on('startGame', (roomId) => {
-        const room = rooms[roomId];
-        if (room && room.host === socket.id) {
-            room.secretPhase = false;
-            room.gameActive = true;
-            room.turnOrder = Object.keys(room.players); 
-            
-            const firstPlayer = room.turnOrder[0];
-            io.to(roomId).emit('gameStarted', { 
-                range: room.range, 
-                firstPlayer: firstPlayer,
-                firstPlayerName: room.players[firstPlayer].name
-            });
-            startTimer(roomId);
-        }
-    });
-
-    // 2. Updated Cut Number Logic
-    socket.on('cutNumber', ({ roomId, number }) => {
-        const room = rooms[roomId];
-        if (!room || !room.gameActive) return;
-        if (room.turnOrder[room.currentTurnIndex] !== socket.id) return;
-
-        clearInterval(room.timer);
-        let safeNames = [];
-
-        Object.keys(room.players).forEach(pid => {
-            const p = room.players[pid];
-            // If someone matches the number, they become safe
-            if (!p.isSafe && p.secret == number) {
-                p.isSafe = true;
-                safeNames.push(p.name);
-            }
-        });
-
-        io.to(roomId).emit('numberCutResult', { number, safeNames });
-        
-        const unsafePlayers = Object.values(room.players).filter(p => !p.isSafe);
-        
-        // Check for Game Over Conditions
-        if (unsafePlayers.length === 1) {
-            const loser = unsafePlayers[0];
-            loser.score += 1;
-            io.to(roomId).emit('updatePlayerList', Object.values(room.players));
-            io.to(roomId).emit('roundOver', `🔴 ${loser.name} FASS GAYA! (Loser)`);
-            setTimeout(() => resetRoom(roomId), 3000);
-            return;
-        }
-
-        const remainingSecrets = [...new Set(unsafePlayers.map(p => p.secret))];
-        if (unsafePlayers.length > 1 && remainingSecrets.length === 1) {
-            const loserNames = unsafePlayers.map(p => p.name).join(" & ");
-            unsafePlayers.forEach(p => p.score += 1);
-            io.to(roomId).emit('updatePlayerList', Object.values(room.players));
-            io.to(roomId).emit('roundOver', `🕸️ DEADLOCK! ${loserNames} phas gaye!`);
-            setTimeout(() => resetRoom(roomId), 4000);
-            return;
-        }
-        
-        if (unsafePlayers.length === 0) {
-            io.to(roomId).emit('roundOver', "😲 Sab Safe? Draw.");
-            setTimeout(() => resetRoom(roomId), 3000);
-            return;
-        }
-
-        // If game continues, move to next UNSAFE player
-        nextTurn(roomId);
-    });
-
-    // Helper: Reset Room
-    function resetRoom(roomId) {
-        const room = rooms[roomId];
-        if(!room) return;
-        room.gameActive = false;
-        room.secretPhase = true;
-        room.currentTurnIndex = 0;
-        Object.keys(room.players).forEach(pid => {
-            room.players[pid].secret = null;
-            room.players[pid].isSafe = false;
-        });
-        io.to(roomId).emit('newRoundStart');
-        io.to(roomId).emit('rangeSet', room.range); 
+function joinRoom() {
+    const code = document.getElementById('room-code-input').value;
+    if(!code) {
+        alert("⚠️ Bina code ke kahan ja raha hai? Code daal! 🔑");
+        return;
     }
+    socket.emit('joinRoom', { name: myName, roomId: code });
+}
 
-    // Helper: Start Timer
-    function startTimer(roomId) {
-        const room = rooms[roomId];
-        let timeLeft = TURN_TIME_LIMIT;
-        io.to(roomId).emit('timerUpdate', timeLeft);
-        clearInterval(room.timer);
-        room.timer = setInterval(() => {
-            timeLeft--;
-            io.to(roomId).emit('timerUpdate', timeLeft);
-            if (timeLeft <= 0) {
-                clearInterval(room.timer);
-                handleTimeout(roomId);
-            }
-        }, 1000);
-    }
+// --- Socket Events ---
+socket.on('connect', () => { myId = socket.id; });
 
-    function handleTimeout(roomId) {
-        const room = rooms[roomId];
-        const pid = room.turnOrder[room.currentTurnIndex];
-        io.to(roomId).emit('message', `⏳ ${room.players[pid].name} ka turn gaya!`);
-        nextTurn(roomId);
-    }
+socket.on('roomCreated', (id) => { myRoomId = id; enterLobby(id, true); });
+socket.on('roomJoined', (data) => { myRoomId = data.roomId; enterLobby(data.roomId, data.isHost); });
 
-    // 3. Updated Next Turn Logic (Strictly skips safe players)
-    function nextTurn(roomId) {
-        const room = rooms[roomId];
-        let foundNextPlayer = false;
-        let checks = 0;
+socket.on('errorMsg', (msg) => alert(`❌ Oye! ${msg}`));
 
-        // Loop through turn order to find the next player who IS NOT safe
-        while (!foundNextPlayer && checks < room.turnOrder.length) {
-            room.currentTurnIndex = (room.currentTurnIndex + 1) % room.turnOrder.length;
-            const pid = room.turnOrder[room.currentTurnIndex];
-            if (!room.players[pid].isSafe) {
-                foundNextPlayer = true;
-            }
-            checks++;
-        }
+function enterLobby(id, isHost) {
+    hideAll();
+    document.getElementById('lobby-screen').classList.remove('hidden');
+    document.getElementById('display-room-code').innerText = id;
+    if(isHost) document.getElementById('host-controls').classList.remove('hidden');
+}
 
-        const nextPid = room.turnOrder[room.currentTurnIndex];
-        io.to(roomId).emit('turnChange', { 
-            id: nextPid, 
-            name: room.players[nextPid].name 
-        });
-        startTimer(roomId);
-    }
+socket.on('updatePlayerList', (players) => {
+    // Leaderboard Update
+    const scoreList = players.map(p => 
+        `<li style="padding:10px; background:#444; margin:5px; border-radius:5px; display:flex; justify-content:space-between;">
+            <span>${p.name} ${p.isSafe ? '✅' : '🤔'}</span> 
+            <span style="color:#ff4757;">${p.score} L</span>
+        </li>`
+    ).join('');
+    document.getElementById('scoreboard-list').innerHTML = scoreList;
 
-    // Disconnect Logic
-    socket.on('disconnect', () => {
-        Object.keys(rooms).forEach(roomId => {
-            const room = rooms[roomId];
-            if (room.players[socket.id]) {
-                delete room.players[socket.id];
-                io.to(roomId).emit('updatePlayerList', Object.values(room.players));
-                if (Object.keys(room.players).length === 0) {
-                    clearInterval(room.timer);
-                    delete rooms[roomId];
-                }
-            }
-        });
+    // Lobby Pills
+    document.getElementById('lobby-pills').innerHTML = players.map(p => 
+        `<div class="player-pill" style="background: var(--primary)">👤 ${p.name}</div>`
+    ).join('');
+
+    // Secret Phase Pills
+    document.getElementById('secret-pills').innerHTML = players.map(p => {
+        if (p.secret) return `<div class="player-pill ready">✅ ${p.name} Ready</div>`;
+        return `<div class="player-pill waiting">🤔 ${p.name} Soch raha hai...</div>`;
+    }).join('');
+});
+
+function setGameRange() {
+    socket.emit('setRange', { roomId: myRoomId, range: document.getElementById('grid-range').value });
+}
+
+socket.on('rangeSet', (range) => {
+    hideAll();
+    document.getElementById('secret-screen').classList.remove('hidden');
+    createGrid(range, 'secret-grid', (num, div) => {
+        document.querySelectorAll('#secret-grid .cell').forEach(c => c.classList.remove('selected'));
+        div.classList.add('selected');
+        mySecretNumber = num;
+        socket.emit('selectSecret', { roomId: myRoomId, number: num });
     });
 });
 
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+socket.on('selectionError', () => {
+    alert("❌ Oye! Copy mat kar, apna number chuno! 🧠");
+    document.querySelectorAll('#secret-grid .cell').forEach(c => c.classList.remove('selected'));
+    mySecretNumber = null;
+});
+
+socket.on('allReady', () => {
+    const btn = document.getElementById('start-btn');
+    btn.classList.remove('hidden');
+    btn.innerText = "SAB READY! SHURU KARO! 🚀";
+});
+
+function triggerStartGame() { socket.emit('startGame', myRoomId); }
+
+socket.on('gameStarted', ({ range, firstPlayer, firstPlayerName }) => {
+    hideAll();
+    document.getElementById('game-screen').classList.remove('hidden');
+    createGrid(range, 'main-grid', (num) => {
+        socket.emit('cutNumber', { roomId: myRoomId, number: num });
+    });
+    updateTurnUI(firstPlayer, firstPlayerName);
+});
+
+socket.on('turnChange', ({ id, name }) => updateTurnUI(id, name));
+
+function updateTurnUI(id, name) {
+    const msg = document.getElementById('turn-msg');
+    const wrapper = document.getElementById('game-grid-wrapper');
+    const grid = document.getElementById('main-grid');
+
+    if(id === socket.id) {
+        msg.innerText = "👉 TERI BAARI HAI! Maar thappa! 🎯";
+        msg.style.color = "#2ecc71";
+        wrapper.classList.add('my-turn-glow'); 
+        grid.style.pointerEvents = 'auto';
+    } else {
+        msg.innerText = `⏳ ${name} dimaag laga raha hai...`;
+        msg.style.color = "#ccc";
+        wrapper.classList.remove('my-turn-glow');
+        grid.style.pointerEvents = 'none';
+    }
+}
+
+socket.on('timerUpdate', (t) => {
+    const timerEl = document.getElementById('timer');
+    timerEl.innerText = t;
+    timerEl.style.color = t <= 5 ? "yellow" : "#ff4757";
+});
+
+socket.on('numberCutResult', ({ number, safeNames }) => {
+    const cell = document.querySelectorAll('#main-grid .cell')[number-1];
+    if(cell) {
+        if(safeNames.length > 0) {
+            cell.classList.add('safe-cut');
+            showOverlay(`🥳 ${safeNames.join(', ')} nikal gaya! SAFE! 🛡️`);
+        } else {
+            cell.classList.add('normal-cut');
+        }
+    }
+});
+
+socket.on('roundOver', (msg) => showOverlay(msg));
+
+socket.on('newRoundStart', () => {
+    setTimeout(() => {
+        document.getElementById('result-overlay').style.display = 'none';
+        hideAll();
+        document.getElementById('secret-screen').classList.remove('hidden');
+        mySecretNumber = null;
+        document.getElementById('my-secret-display').innerText = "My Secret: 🔒 (Hold/Click)";
+    }, 1500);
+});
+
+// --- Helpers ---
+function peekSecret() {
+    if(!mySecretNumber) return;
+    const el = document.getElementById('my-secret-display');
+    el.innerText = `Tera Number: ${mySecretNumber}`;
+    setTimeout(() => el.innerText = "My Secret: 🔒 (Hold/Click)", 1500);
+}
+
+function showOverlay(text) {
+    const el = document.getElementById('result-overlay');
+    el.innerText = text;
+    el.style.display = 'block';
+    setTimeout(() => { if(!text.includes("FASS")) el.style.display = 'none'; }, 2500);
+}
+
+function hideAll() { document.querySelectorAll('.container > div').forEach(d => d.classList.add('hidden')); }
+
+function createGrid(range, id, callback) {
+    const con = document.getElementById(id); con.innerHTML='';
+    for(let i=1; i<=range; i++) {
+        const d = document.createElement('div');
+        d.className = 'cell'; d.innerText=i;
+        d.onclick = () => callback(i, d);
+        con.appendChild(d);
+    }
+}
+
+function toggleScoreboard() {
+    const modal = document.getElementById('score-modal');
+    modal.style.display = modal.style.display === 'flex' ? 'none' : 'flex';
+}
