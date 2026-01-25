@@ -14,7 +14,8 @@ app.get('/', (req, res) => {
 });
 
 let rooms = {}; 
-const TURN_TIME_LIMIT = 15;
+// 1. Updated Time Limit to 30 Seconds
+const TURN_TIME_LIMIT = 30; 
 
 function generateRoomId() {
     return Math.floor(1000 + Math.random() * 9000).toString();
@@ -22,10 +23,9 @@ function generateRoomId() {
 
 io.on('connection', (socket) => {
     
-    // 1. Create Room (With Collision Check)
+    // Create Room
     socket.on('createRoom', (playerName) => {
         let roomId;
-        // Ensure Room ID is unique
         do {
             roomId = generateRoomId();
         } while (rooms[roomId]);
@@ -45,7 +45,7 @@ io.on('connection', (socket) => {
         socket.emit('roomCreated', roomId);
     });
 
-    // 2. Join Room
+    // Join Room
     socket.on('joinRoom', ({ name, roomId }) => {
         if (rooms[roomId]) {
             joinRoomLogic(socket, roomId, name);
@@ -64,14 +64,14 @@ io.on('connection', (socket) => {
             secret: null,
             isSafe: false,
             score: 0,
-            roomId: roomId // Store roomId in player object for easier cleanup
+            roomId: roomId 
         };
 
         socket.emit('roomJoined', { roomId, isHost: room.host === socket.id });
         io.to(roomId).emit('updatePlayerList', Object.values(room.players));
     }
 
-    // 3. Set Range
+    // Set Range
     socket.on('setRange', ({ roomId, range }) => {
         if (rooms[roomId] && rooms[roomId].host === socket.id) {
             rooms[roomId].range = parseInt(range);
@@ -79,12 +79,11 @@ io.on('connection', (socket) => {
         }
     });
 
-    // 4. Select Secret
+    // Select Secret
     socket.on('selectSecret', ({ roomId, number }) => {
         const room = rooms[roomId];
         if (!room) return;
 
-        // Conflict Check for 2 Players
         const allPlayerIds = Object.keys(room.players);
         if (allPlayerIds.length === 2) {
             const otherPlayerId = allPlayerIds.find(id => id !== socket.id);
@@ -105,7 +104,7 @@ io.on('connection', (socket) => {
         }
     });
 
-    // 5. Start Game
+    // Start Game
     socket.on('startGame', (roomId) => {
         const room = rooms[roomId];
         if (room && room.host === socket.id) {
@@ -123,7 +122,7 @@ io.on('connection', (socket) => {
         }
     });
 
-    // 6. Cut Number
+    // 2. Updated Cut Number Logic
     socket.on('cutNumber', ({ roomId, number }) => {
         const room = rooms[roomId];
         if (!room || !room.gameActive) return;
@@ -134,6 +133,7 @@ io.on('connection', (socket) => {
 
         Object.keys(room.players).forEach(pid => {
             const p = room.players[pid];
+            // If someone matches the number, they become safe
             if (!p.isSafe && p.secret == number) {
                 p.isSafe = true;
                 safeNames.push(p.name);
@@ -144,6 +144,7 @@ io.on('connection', (socket) => {
         
         const unsafePlayers = Object.values(room.players).filter(p => !p.isSafe);
         
+        // Check for Game Over Conditions
         if (unsafePlayers.length === 1) {
             const loser = unsafePlayers[0];
             loser.score += 1;
@@ -158,7 +159,7 @@ io.on('connection', (socket) => {
             const loserNames = unsafePlayers.map(p => p.name).join(" & ");
             unsafePlayers.forEach(p => p.score += 1);
             io.to(roomId).emit('updatePlayerList', Object.values(room.players));
-            io.to(roomId).emit('roundOver', `🕸️ DEADLOCK! ${loserNames} phas gaye! (Same Number)`);
+            io.to(roomId).emit('roundOver', `🕸️ DEADLOCK! ${loserNames} phas gaye!`);
             setTimeout(() => resetRoom(roomId), 4000);
             return;
         }
@@ -169,43 +170,11 @@ io.on('connection', (socket) => {
             return;
         }
 
+        // If game continues, move to next UNSAFE player
         nextTurn(roomId);
     });
 
-    // --- CLEANUP LOGIC (Disconnect Handle) ---
-    socket.on('disconnect', () => {
-        // Find user in rooms (Scan all rooms)
-        // Note: In production, we stored roomId in socket/player object to avoid scanning
-        // But here we can iterate or use saved ID
-        
-        Object.keys(rooms).forEach(roomId => {
-            const room = rooms[roomId];
-            if (room.players[socket.id]) {
-                const leavingPlayerName = room.players[socket.id].name;
-                delete room.players[socket.id]; // Remove player
-
-                // Notify others
-                io.to(roomId).emit('updatePlayerList', Object.values(room.players));
-                
-                // If room is empty, DELETE ROOM to save memory
-                if (Object.keys(room.players).length === 0) {
-                    clearInterval(room.timer);
-                    delete rooms[roomId];
-                    console.log(`Room ${roomId} deleted (Empty)`);
-                } else {
-                    // If Host left, assign new host (Optional but good)
-                    if (room.host === socket.id) {
-                        const newHostId = Object.keys(room.players)[0];
-                        room.host = newHostId;
-                        io.to(roomId).emit('roomJoined', { roomId, isHost: false }); // Reset UI
-                        io.to(newHostId).emit('roomJoined', { roomId, isHost: true }); // New Host
-                    }
-                }
-            }
-        });
-    });
-
-    // ... Helpers (resetRoom, startTimer, nextTurn) same as before ...
+    // Helper: Reset Room
     function resetRoom(roomId) {
         const room = rooms[roomId];
         if(!room) return;
@@ -220,6 +189,7 @@ io.on('connection', (socket) => {
         io.to(roomId).emit('rangeSet', room.range); 
     }
 
+    // Helper: Start Timer
     function startTimer(roomId) {
         const room = rooms[roomId];
         let timeLeft = TURN_TIME_LIMIT;
@@ -238,20 +208,26 @@ io.on('connection', (socket) => {
     function handleTimeout(roomId) {
         const room = rooms[roomId];
         const pid = room.turnOrder[room.currentTurnIndex];
-        io.to(roomId).emit('message', `⏳ ${room.players[pid].name} so gaya! Turn skipped.`);
+        io.to(roomId).emit('message', `⏳ ${room.players[pid].name} ka turn gaya!`);
         nextTurn(roomId);
     }
 
+    // 3. Updated Next Turn Logic (Strictly skips safe players)
     function nextTurn(roomId) {
         const room = rooms[roomId];
         let foundNextPlayer = false;
         let checks = 0;
+
+        // Loop through turn order to find the next player who IS NOT safe
         while (!foundNextPlayer && checks < room.turnOrder.length) {
             room.currentTurnIndex = (room.currentTurnIndex + 1) % room.turnOrder.length;
             const pid = room.turnOrder[room.currentTurnIndex];
-            if (!room.players[pid].isSafe) foundNextPlayer = true;
+            if (!room.players[pid].isSafe) {
+                foundNextPlayer = true;
+            }
             checks++;
         }
+
         const nextPid = room.turnOrder[room.currentTurnIndex];
         io.to(roomId).emit('turnChange', { 
             id: nextPid, 
@@ -259,6 +235,21 @@ io.on('connection', (socket) => {
         });
         startTimer(roomId);
     }
+
+    // Disconnect Logic
+    socket.on('disconnect', () => {
+        Object.keys(rooms).forEach(roomId => {
+            const room = rooms[roomId];
+            if (room.players[socket.id]) {
+                delete room.players[socket.id];
+                io.to(roomId).emit('updatePlayerList', Object.values(room.players));
+                if (Object.keys(room.players).length === 0) {
+                    clearInterval(room.timer);
+                    delete rooms[roomId];
+                }
+            }
+        });
+    });
 });
 
 const PORT = process.env.PORT || 3000;
